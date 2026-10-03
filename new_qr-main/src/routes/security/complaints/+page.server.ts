@@ -1,0 +1,30 @@
+import { redirect } from '@sveltejs/kit';
+import type { PageServerLoad } from './$types';
+import { supabase } from '$lib/server/supabase';
+
+export const load: PageServerLoad = async ({ locals }) => {
+    if (!locals.user || locals.user.role !== 'security') {
+        throw redirect(302, '/login');
+    }
+
+    try {
+        // Fetch unread complaints count from Supabase
+        const { count: unreadComplaints } = await supabase
+            .from('complaint')
+            .select('*', { count: 'exact', head: true })
+            .eq('is_read', false);
+
+        return {
+            userEmail: locals.user.email,
+            userRole: locals.user.role,
+            unreadComplaints: unreadComplaints || 0
+        };
+    } catch (error) {
+        console.error('Error loading security complaints page:', error);
+        return {
+            userEmail: locals.user.email,
+            userRole: locals.user.role,
+            unreadComplaints: 0
+        };
+    }
+};
