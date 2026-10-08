@@ -1,6 +1,7 @@
 <script lang="ts">
     import AppShell from '$lib/components/AppShell.svelte';
     import ApplicationCard from '$lib/components/ApplicationCard.svelte';
+    import { invalidateAll } from '$app/navigation';
     import type { PageData } from './$types';
 
     let { data }: { data: PageData } = $props();
@@ -12,7 +13,95 @@
 
     // Convert to any[] to avoid TypeScript strict property checks
     let app = $derived((data.application as any) || null);
+    let changeRequest = $derived((data.changeRequest as any) || null);
     let skipDean = $derived(app ? ['visitor', 'concessionaire'].includes(app.role) : false);
+
+    // Vehicle change modal state
+    let changeModalOpen = $state(false);
+    let changeReason = $state('');
+    let newMake = $state('');
+    let newPlate = $state('');
+    let newColor = $state('');
+    let newType = $state('4-wheeler');
+    let newIsOwner = $state('yes');
+
+    let changeFiles = $state({
+        or: null as File | null,
+        cr: null as File | null,
+        license: null as File | null,
+        letter: null as File | null
+    });
+
+    let changeLoading = $state(false);
+    let changeError = $state('');
+
+    function handleFileChange(key: keyof typeof changeFiles, e: Event) {
+        const input = e.target as HTMLInputElement;
+        if (input.files && input.files[0]) {
+            const f = input.files[0];
+            const isPdf = f.name.toLowerCase().endsWith('.pdf') || f.type === 'application/pdf';
+            if (!isPdf) {
+                alert('Only PDF files are allowed.');
+                input.value = '';
+                return;
+            }
+            changeFiles[key] = f;
+        } else {
+            changeFiles[key] = null;
+        }
+    }
+
+    async function submitChangeRequest() {
+        if (!changeReason.trim()) {
+            changeError = 'Please provide the reason why you need to change registration details.';
+            return;
+        }
+        if (!newMake.trim() || !newPlate.trim()) {
+            changeError = 'Please provide the new vehicle make and plate number.';
+            return;
+        }
+
+        changeLoading = true;
+        changeError = '';
+
+        try {
+            const formData = new FormData();
+            formData.append('reason', changeReason.trim());
+            formData.append('vehicle_make', newMake.trim());
+            formData.append('vehicle_plate', newPlate.trim());
+            formData.append('vehicle_color', newColor.trim() || 'Not Specified');
+            formData.append('vehicle_type', newType);
+            formData.append('is_owner', newIsOwner);
+            if (app?.id) formData.append('registration_id', String(app.id));
+
+            if (changeFiles.or) formData.append('doc_or', changeFiles.or);
+            if (changeFiles.cr) formData.append('doc_cr', changeFiles.cr);
+            if (changeFiles.license) formData.append('doc_license', changeFiles.license);
+            if (changeFiles.letter) formData.append('doc_letter', changeFiles.letter);
+
+            const res = await fetch('/api/change-vehicle/request', {
+                method: 'POST',
+                body: formData
+            });
+
+            const resData = await res.json();
+            if (!res.ok) {
+                changeError = resData.error || 'Failed to submit change request.';
+            } else {
+                alert('Your request to change registration details has been submitted to OSA for review!');
+                changeModalOpen = false;
+                changeReason = '';
+                newMake = '';
+                newPlate = '';
+                newColor = '';
+                await invalidateAll();
+            }
+        } catch (e: any) {
+            changeError = e.message || 'Network error.';
+        } finally {
+            changeLoading = false;
+        }
+    }
 
     // Helpers to determine step states
     function stepStatus(app: any, stepNum: number) {
@@ -272,10 +361,155 @@
         letter: app.doc_letter
       }
     }}
-    showQR={app.qr_code != null}
+    showQR={true}
     tab="status"
     showDocs={false}>
     </ApplicationCard>
+
+    <!-- ── Vehicle Change Request Section ── -->
+    {#if app && (app.status === 'completed' || app.sticker_installed_at || changeRequest)}
+      <div class="change-request-section">
+        {#if changeRequest && ['pending', 'Pending'].includes(changeRequest.status)}
+          <div class="cr-status-box cr-status-pending">
+            <div class="crs-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+              </svg>
+            </div>
+            <div class="crs-content">
+              <strong>Pending Request to Change Registration Details</strong>
+              <p>Your request to change registration details to <em>{changeRequest.new_vehicle?.brand || ''} ({changeRequest.new_vehicle?.plate_number || ''})</em> is currently under review by OSA.</p>
+              <div class="crs-reason">Reason: "{changeRequest.reason}"</div>
+            </div>
+          </div>
+        {:else if changeRequest && ['approved', 'Approved', 'in_progress'].includes(changeRequest.status)}
+          <div class="cr-status-box cr-status-approved">
+            <div class="crs-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+              </svg>
+            </div>
+            <div class="crs-content">
+              <strong>Request to Change Registration Details Accepted!</strong>
+              <p>Your registration change request was accepted by OSA. Your application has moved to the verification and compliance flow.</p>
+              {#if app.dist_sched}
+                <div class="crs-sched">Scheduled Visit: <strong>{new Date(app.dist_sched).toLocaleString()}</strong></div>
+              {/if}
+            </div>
+          </div>
+        {:else}
+          <div class="cr-action-bar">
+            <div class="cr-action-info">
+              <h4>Need to change your registration details?</h4>
+              <p>Submit a request with your new vehicle details and reason to update your registration.</p>
+            </div>
+            <button class="btn-change-vehicle" onclick={() => { changeModalOpen = true; changeError = ''; }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>
+              </svg>
+              Request to Change Registration Details
+            </button>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    <!-- ── Request to Change Vehicle Modal ── -->
+    {#if changeModalOpen}
+      <div class="modal-backdrop" onclick={() => { if (!changeLoading) changeModalOpen = false; }}>
+        <div class="modal-card" onclick={(e) => e.stopPropagation()}>
+          <div class="mc-header">
+            <div class="mc-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>
+              </svg>
+            </div>
+            <div>
+              <h3>Request to Change Registration Details</h3>
+              <p>Submit your reason and new vehicle details for OSA evaluation.</p>
+            </div>
+            <button class="mc-close" onclick={() => { if (!changeLoading) changeModalOpen = false; }}>✕</button>
+          </div>
+
+          <div class="mc-body">
+            {#if changeError}
+              <div class="modal-alert-error">{changeError}</div>
+            {/if}
+
+            <div class="form-group">
+              <label for="change-reason">Reason to Change Registration Details <span class="required">*</span></label>
+              <textarea 
+                id="change-reason"
+                rows="3" 
+                placeholder="Explain why you need to change your vehicle information (e.g. Sold previous car, bought new vehicle, replacement)..."
+                bind:value={changeReason}
+                class="form-input"
+              ></textarea>
+            </div>
+
+            <div class="form-grid">
+              <div class="form-group">
+                <label for="veh-make">New Make / Brand <span class="required">*</span></label>
+                <input id="veh-make" type="text" placeholder="e.g. Toyota Vios, Honda Beat" bind:value={newMake} class="form-input" />
+              </div>
+
+              <div class="form-group">
+                <label for="veh-plate">New Plate Number <span class="required">*</span></label>
+                <input id="veh-plate" type="text" placeholder="e.g. ABC 1234 / 123ABC" bind:value={newPlate} class="form-input" />
+              </div>
+
+              <div class="form-group">
+                <label for="veh-color">Color</label>
+                <input id="veh-color" type="text" placeholder="e.g. Black, White, Red" bind:value={newColor} class="form-input" />
+              </div>
+
+              <div class="form-group">
+                <label for="veh-type">Vehicle Type</label>
+                <select id="veh-type" bind:value={newType} class="form-input">
+                  <option value="4-Wheeler / Car">4-Wheeler</option>
+                  <option value="2-Wheeler / Motorcycle">2-Wheeler</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="veh-owner">Are you the registered owner of this vehicle?</label>
+              <select id="veh-owner" bind:value={newIsOwner} class="form-input">
+                <option value="yes">Yes, I am the owner</option>
+                <option value="no">No, authorized by owner</option>
+              </select>
+            </div>
+
+            <div class="upload-section">
+              <span class="upload-title">New Vehicle Documents (PDF format):</span>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label for="doc-or">Official Receipt (OR)</label>
+                  <input id="doc-or" type="file" accept=".pdf" onchange={(e) => handleFileChange('or', e)} class="file-input" />
+                </div>
+                <div class="form-group">
+                  <label for="doc-cr">Cert. of Registration (CR)</label>
+                  <input id="doc-cr" type="file" accept=".pdf" onchange={(e) => handleFileChange('cr', e)} class="file-input" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mc-footer">
+            <button class="btn-cancel" onclick={() => changeModalOpen = false} disabled={changeLoading}>
+              Cancel
+            </button>
+            <button class="btn-submit-change" onclick={submitChangeRequest} disabled={changeLoading}>
+              {#if changeLoading}
+                Submitting Request...
+              {:else}
+                Submit Registration Change Request
+              {/if}
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
   {:else}
     <div class="no-app">
       <p>You have not submitted a vehicle application yet.</p>
@@ -559,5 +793,284 @@
   .alert-desc {
     font-size: 0.85rem;
     margin: 0;
+  }
+
+  /* ─── Vehicle Change Request Section ─────────────────────────────────── */
+  .change-request-section {
+    margin-top: 1.25rem;
+    width: 100%;
+  }
+
+  .cr-action-bar {
+    background: linear-gradient(135deg, rgba(212, 175, 55, 0.08), rgba(128, 0, 0, 0.04));
+    border: 1.5px solid #d4af37;
+    border-radius: var(--radius-sm, 8px);
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .cr-action-info h4 {
+    margin: 0 0 0.25rem 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--maroon, #800000);
+  }
+
+  .cr-action-info p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary, #4b5563);
+  }
+
+  .btn-change-vehicle {
+    padding: 0.65rem 1.25rem;
+    background: var(--maroon, #800000);
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: background 0.2s, transform 0.15s;
+    box-shadow: 0 2px 8px rgba(128, 0, 0, 0.2);
+  }
+
+  .btn-change-vehicle:hover {
+    background: #600000;
+    transform: translateY(-1px);
+  }
+
+  .cr-status-box {
+    border-radius: var(--radius-sm, 8px);
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .cr-status-pending {
+    background: #fffbeb;
+    border: 1.5px solid #fde68a;
+    color: #92400e;
+  }
+
+  .cr-status-approved {
+    background: #f0fdf4;
+    border: 1.5px solid #86efac;
+    color: #166534;
+  }
+
+  .crs-content strong {
+    display: block;
+    font-size: 0.95rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .crs-content p {
+    margin: 0 0 0.4rem 0;
+    font-size: 0.85rem;
+  }
+
+  .crs-reason {
+    font-size: 0.85rem;
+    font-style: italic;
+    color: #78350f;
+  }
+
+  .crs-sched {
+    font-size: 0.85rem;
+    color: #15803d;
+  }
+
+  /* Modals */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    z-index: 1000;
+    backdrop-filter: blur(3px);
+  }
+
+  .modal-card {
+    background: #ffffff;
+    border-radius: 14px;
+    width: 100%;
+    max-width: 600px;
+    max-height: 90vh;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    animation: modalPop 0.2s ease-out;
+  }
+
+  @keyframes modalPop {
+    from { transform: scale(0.95); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+
+  .mc-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid #f3f4f6;
+    display: flex;
+    align-items: center;
+    gap: 0.875rem;
+    position: relative;
+  }
+
+  .mc-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    background: rgba(128, 0, 0, 0.1);
+    color: var(--maroon, #800000);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mc-header h3 {
+    margin: 0;
+    font-size: 1.15rem;
+    color: #111827;
+  }
+
+  .mc-header p {
+    margin: 0.2rem 0 0 0;
+    font-size: 0.8rem;
+    color: #6b7280;
+  }
+
+  .mc-close {
+    position: absolute;
+    right: 1.25rem;
+    top: 1.25rem;
+    background: none;
+    border: none;
+    font-size: 1.2rem;
+    cursor: pointer;
+    color: #9ca3af;
+  }
+
+  .mc-body {
+    padding: 1.25rem 1.5rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .modal-alert-error {
+    background: #fef2f2;
+    border: 1px solid #fca5a5;
+    color: #b91c1c;
+    padding: 0.65rem 0.875rem;
+    border-radius: 6px;
+    font-size: 0.825rem;
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .form-group label {
+    font-size: 0.825rem;
+    font-weight: 600;
+    color: #374151;
+  }
+
+  .required { color: #dc2626; }
+
+  .form-input {
+    padding: 0.65rem 0.85rem;
+    border: 1.5px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .form-input:focus {
+    border-color: var(--maroon, #800000);
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+
+  @media (max-width: 480px) {
+    .form-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .upload-section {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 0.875rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+
+  .upload-title {
+    font-size: 0.825rem;
+    font-weight: 700;
+    color: #374151;
+  }
+
+  .file-input {
+    font-size: 0.8rem;
+  }
+
+  .mc-footer {
+    padding: 1rem 1.5rem;
+    background: #f9fafb;
+    border-top: 1px solid #f3f4f6;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+  }
+
+  .btn-cancel {
+    padding: 0.6rem 1rem;
+    border: 1px solid #d1d5db;
+    background: #ffffff;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .btn-submit-change {
+    padding: 0.6rem 1.25rem;
+    border: none;
+    background: var(--maroon, #800000);
+    color: #ffffff;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .btn-submit-change:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 </style>

@@ -84,7 +84,15 @@
         return false;
     })());
 
-    function setFile(key: keyof typeof files, file: File | null) {
+    function setFile(key: keyof typeof files, file: File | null, inputEl: HTMLInputElement | null = null) {
+        if (file) {
+            const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+            if (!isPdf) {
+                alert('Only PDF files are allowed. (Document allows PDF and Scanned)');
+                if (inputEl) inputEl.value = '';
+                return;
+            }
+        }
         if (files[key].url) URL.revokeObjectURL(files[key].url!)
         files[key] = file
             ? { file, url: URL.createObjectURL(file) }
@@ -155,6 +163,19 @@
 </svelte:head>
 
 <AppShell>
+  {#if data.applicationOpen === false}
+    <div class="form-card" style="text-align:center; padding: 2.5rem 1.5rem; display:flex; flex-direction:column; align-items:center; gap:0.75rem;">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="var(--maroon)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <h2 style="margin:0; color:var(--maroon); font-size:1.25rem;">Applications are currently closed</h2>
+      <p style="margin:0; color:var(--text-secondary); font-size:0.9rem; max-width:420px;">
+        The Office of Student Affairs is not accepting vehicle sticker applications right now. Please check back later or contact <a href="mailto:osa@liceo.edu.ph" class="footer-link">osa@liceo.edu.ph</a>.
+      </p>
+      <button type="button" class="nav-btn btn-back" style="margin-top: 1rem; max-width: 180px; width: 100%; border: 1.5px solid #e5e7eb;" onclick={() => { if (typeof window !== 'undefined' && window.history.length > 1) { window.history.back(); } else { goto('/status'); } }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Back
+      </button>
+    </div>
+  {:else}
   <!-- User greeting -->
   <div class="welcome-bar">
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -306,6 +327,16 @@
             <span>No</span>
           </label>
         </div>
+      </div>
+
+      <div class="doc-format-notice">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+        <span>(Document allows PDF and Scanned)</span>
       </div>
 
       <!-- Liceo documents -->
@@ -465,6 +496,7 @@
   <p class="form-footer">
     Issues? Contact <a href="mailto:osa@liceo.edu.ph" class="footer-link">osa@liceo.edu.ph</a>
   </p>
+  {/if}
 </AppShell>
 
 {#snippet spinner()}
@@ -474,10 +506,18 @@
 {/snippet}
 
 {#snippet uploadLabel(label: string, key: keyof typeof files)}
-  <label class="upload-tile">
+  <label class="upload-tile" class:has-file={!!files[key].file}>
     <span class="upload-label-text">{label}</span>
-    {#if files[key].url}
-      <img src={files[key].url} class="upload-preview" alt={label} />
+    {#if files[key].file}
+      <div class="upload-pdf-preview">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--maroon)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <path d="M9 15h6"/>
+          <path d="M9 11h6"/>
+        </svg>
+        <span class="pdf-tag">PDF</span>
+      </div>
       <span class="upload-filename">{files[key].file?.name}</span>
     {:else}
       <div class="upload-placeholder">
@@ -485,8 +525,8 @@
         <span>Upload</span>
       </div>
     {/if}
-    <input hidden type="file" accept=".pdf,.jpg,.jpeg,.png,.tiff,.bmp"
-      onchange={(e) => setFile(key, e.currentTarget.files?.[0] ?? null)} />
+    <input hidden type="file" accept=".pdf,application/pdf"
+      onchange={(e) => setFile(key, e.currentTarget.files?.[0] ?? null, e.currentTarget)} />
   </label>
 {/snippet}
 
@@ -816,6 +856,43 @@
     word-break: break-all;
     text-align: center;
     font-weight: 500;
+  }
+
+  .doc-format-notice {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1rem;
+    background: linear-gradient(135deg, #fef2f2, #fff5f5);
+    border: 1px solid rgba(107, 26, 42, 0.15);
+    border-radius: 10px;
+    color: var(--maroon);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    margin-bottom: 0.75rem;
+  }
+
+  .upload-pdf-preview {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem;
+  }
+
+  .pdf-tag {
+    font-size: 0.65rem;
+    font-weight: 800;
+    background: var(--maroon);
+    color: #fff;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    letter-spacing: 0.05em;
+  }
+
+  .upload-tile.has-file {
+    border-color: var(--maroon);
+    background: #fffafa;
   }
 
   /* ─── Agreement ─── */

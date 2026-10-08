@@ -2,8 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { supabase } from '$lib/server/supabase';
 import { env } from '$env/dynamic/private';
-import fs from 'fs';
-import path from 'path';
+import { uploadToStorage } from '$lib/server/storage';
 import crypto from 'crypto';
 
 function checkAuth(request: Request): boolean {
@@ -16,7 +15,7 @@ export const POST: RequestHandler = async ({ request }) => {
     }
 
     try {
-        const { registration_id, pic_base64, logged_status } = await request.json();
+        const { registration_id, pic_base64, logged_status, campus } = await request.json();
 
         if (!registration_id) {
             return json({ error: 'Missing registration_id' }, { status: 400 });
@@ -25,7 +24,7 @@ export const POST: RequestHandler = async ({ request }) => {
         // Get vehicle_information_id from registration
         const { data: regData } = await supabase
             .from('registration')
-            .select('vehicle_information_id')
+            .select('vehicle_information_id, campus')
             .eq('registration_id', registration_id)
             .single();
 
@@ -33,38 +32,46 @@ export const POST: RequestHandler = async ({ request }) => {
             return json({ error: 'Registration not found' }, { status: 404 });
         }
 
+        // Deactivate QR if there is an approved change request pending sticker release
+        const { data: activeChange } = await supabase
+            .from('change_vehicle_requests')
+            .select('status')
+            .eq('registration_id', registration_id)
+            .in('status', ['Approved', 'approved'])
+            .maybeSingle();
+
+        if (activeChange) {
+            return json({ error: 'QR Code is deactivated pending new vehicle sticker release.' }, { status: 403 });
+        }
+
         const vehicle_information_id = regData.vehicle_information_id;
 
         let picUrl = null;
         if (pic_base64) {
             try {
-                const uploadDir = path.join(process.cwd(), 'static', 'uploads', 'gate');
-                if (!fs.existsSync(uploadDir)) {
-                    fs.mkdirSync(uploadDir, { recursive: true });
-                }
-
                 const base64Data = pic_base64.replace(/^data:image\/\w+;base64,/, '');
                 const buffer = Buffer.from(base64Data, 'base64');
-                
-                const filename = `out_${registration_id}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.jpg`;
-                const filepath = path.join(uploadDir, filename);
-                
-                fs.writeFileSync(filepath, buffer);
-                picUrl = `/uploads/gate/${filename}`;
+                const filename = `gate/out_${registration_id}_${Date.now()}_${crypto.randomBytes(4).toString('hex')}.jpg`;
+                picUrl = await uploadToStorage(filename, buffer, 'image/jpeg');
             } catch (err) {
-                console.error('[Gate] Error saving exit image:', err);
+                console.error('[Gate] Error saving exit image to Supabase Storage:', err);
             }
         }
 
         // Find the most recent open entrylog for this registration
         const { data: rows, error: queryError } = await supabase
             .from('vehicle_log')
-            .select('vehicle_log_id')
+            .select('vehicle_log_id, campus')
             .eq('registration_id', registration_id)
             .is('check_out', null)
             .order('check_in', { ascending: false })
             .limit(1)
             .single();
+
+        const rawExitCampus = rows?.campus || campus || regData.campus || 'Main Campus';
+        let exitCampus = 'Main Campus';
+        if (rawExitCampus.toLowerCase().includes('rnp')) exitCampus = 'RNP';
+        else if (rawExitCampus.toLowerCase().includes('paseo')) exitCampus = 'PASEO';
 
         if (rows && !queryError) {
             // Update existing open entry log with OUT time, photo, and OUT-time status
@@ -86,39 +93,56 @@ export const POST: RequestHandler = async ({ request }) => {
             const { data: settingsData } = await supabase
                 .from('parking_availability')
                 .select('parking_capacity')
+                .eq('campus', exitCampus)
                 .order('date_time', { ascending: false })
                 .limit(1)
                 .maybeSingle();
 
-            const parking_capacity = settingsData?.parking_capacity ?? 0;
+            const parking_capacity = settingsData?.parking_capacity ?? 500;
 
             // Get current slot counts from the most recent parking availability record
             const { data: lastParkingData } = await supabase
                 .from('parking_availability')
                 .select('slot_occupied, slot_unoccupied')
+                .eq('campus', exitCampus)
                 .order('date_time', { ascending: false })
                 .limit(1)
                 .maybeSingle();
 
-            const current_occupied = lastParkingData?.slot_occupied || 0;
-            const current_unoccupied = lastParkingData?.slot_unoccupied || parking_capacity;
+            let current_occupied = lastParkingData?.slot_occupied;
+            if (current_occupied === undefined || current_occupied === null) {
+                const { data: insideLogs } = await supabase
+                    .from('vehicle_log')
+                    .select('campus, registration:registration_id(campus)')
+                    .is('check_out', null);
+
+                current_occupied = (insideLogs || []).filter(l => {
+                    const c = (l.campus || l.registration?.campus || '').toLowerCase();
+                    if (exitCampus === 'RNP') return c.includes('rnp');
+                    if (exitCampus === 'PASEO') return c.includes('paseo');
+                    return !c.includes('rnp') && !c.includes('paseo');
+                }).length;
+            }
 
             // Calculate new slot counts
             const new_occupied = Math.max(0, current_occupied - 1);
-            const new_unoccupied = Math.min(parking_capacity, current_unoccupied + 1);
+            const new_unoccupied = Math.min(parking_capacity, Math.max(0, parking_capacity - new_occupied));
 
             // Create new parking availability record
             const { error: parkingError } = await supabase
                 .from('parking_availability')
                 .insert({
                     vehicle_log_id,
+                    campus: exitCampus,
                     parking_capacity,
                     slot_occupied: new_occupied,
                     slot_unoccupied: new_unoccupied,
                     date_time: new Date().toISOString()
                 });
 
-            if (parkingError) throw parkingError;
+            if (parkingError) {
+                console.error('[Gate] Parking availability exit insert error:', parkingError);
+            }
         } else {
             // No open entry log found — create a standalone OUT row
             const { error: insertError } = await supabase
@@ -128,7 +152,7 @@ export const POST: RequestHandler = async ({ request }) => {
                     vehicle_information_id,
                     check_out: new Date().toISOString(),
                     pic_out: picUrl,
-                    logged_status_out: logged_status || null
+                    logged_status_out: logged_status || null,
                 });
 
             if (insertError) throw insertError;

@@ -1,0 +1,449 @@
+/* ==========================================================================
+   GateQR Premium Red & Gold Theme
+   Shared by: OSA Admin, Security Admin, and Applicant (form / status) pages.
+   Activated by the `.theme-osa` class on the AppShell wrapper.
+   DESIGN ONLY — no functional selectors or behaviour live here.
+   ========================================================================== */
+
+/* ─── Page Background ─── */
+.theme-osa {
+	--bg-gradient: linear-gradient(135deg, #fbf7f8 0%, #f4e8eb 50%, #f0dadf 100%);
+	background: var(--bg-gradient) !important;
+}
+
+/* ─── Sidebar ─── */
+.theme-osa .sidebar {
+	background: linear-gradient(175deg, #7A1734 0%, #4a0d1e 100%) !important;
+	color: #ffffff !important;
+	border: 1px solid #942242 !important;
+	box-shadow: 6px 0 24px rgba(92, 16, 37, 0.25) !important;
+}
+
+.theme-osa .sidebar .brand-name {
+	color: #E9C25E !important;
+	text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+.theme-osa .sidebar .brand-sub {
+	color: #F5D5DE !important;
+}
+
+.theme-osa .sidebar .sidebar-user {
+	background: rgba(0, 0, 0, 0.2) !important;
+	border: 1px solid rgba(233, 194, 94, 0.3) !important;
+}
+
+.theme-osa .sidebar .user-email {
+	color: #ffffff !important;
+}
+
+.theme-osa .sidebar .user-role {
+	color: #E9C25E !important;
+	font-weight: 700 !important;
+}
+
+.theme-osa .sidebar .logout-btn {
+	background: rgba(255, 255, 255, 0.05) !important;
+	border-color: rgba(233, 194, 94, 0.4) !important;
+	color: #E9C25E !important;
+}
+
+.theme-osa .sidebar .logout-btn:hover {
+	background: #E9C25E !important;
+	color: #3D0818 !important;
+}
+
+.theme-osa .sidebar .sidebar-link {
+	background: rgba(255, 255, 255, 0.06) !important;
+	border: 1px solid rgba(255, 255, 255, 0.08) !important;
+	color: #ffffff !important;
+}
+
+.theme-osa .sidebar .sidebar-link:hover {
+	background: rgba(233, 194, 94, 0.14) !important;
+	border-color: rgba(233, 194, 94, 0.5) !important;
+	color: #F5D98B !important;
+}
+
+.theme-osa .sidebar .sidebar-link.active {
+	background: linear-gradient(90deg, #F0CF72, #D4A62A) !important;
+	border-color: #F8E9EC !important;
+	color: #3D0818 !important;
+	font-weight: 700 !important;
+	box-shadow: 0 4px 12px rgba(212, 166, 42, 0.3) !important;
+}
+
+/* Sidebar link text - high contrast on maroon */
+.theme-osa .sidebar .sidebar-label {
+	color: #ffffff !important;
+	font-weight: 700 !important;
+	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35) !important;
+}
+
+.theme-osa .sidebar .sidebar-desc {
+	color: #F5D5DE !important;
+	opacity: 1 !important;
+}
+
+.theme-osa .sidebar .sidebar-link:hover .sidebar-label {
+	color: #F5D98B !important;
+}
+
+.theme-osa .sidebar .sidebar-link:hover .sidebar-desc {
+	color: #FFF3D6 !important;
+}
+
+.theme-osa .sidebar .sidebar-link.active .sidebar-label {
+	color: #3D0818 !important;
+	text-shadow: none !important;
+}
+
+.theme-osa .sidebar .sidebar-link.active .sidebar-desc {
+	color: #5C1025 !important;
+}
+
+/* Sidebar icons */
+.theme-osa .sidebar .sidebar-icon {
+	background: rgba(233, 194, 94, 0.15) !important;
+	border-color: rgba(233, 194, 94, 0.45) !important;
+	color: #E9C25E !important;
+}
+
+.theme-osa .sidebar .sidebar-link:hover .sidebar-icon {
+	background: linear-gradient(135deg, #F0CF72, #D4A62A) !important;
+	color: #3D0818 !important;
+}
+
+.theme-osa .sidebar .sidebar-link.active .sidebar-icon {
+	background: #5C1025 !important;
+	border-color: #5C1025 !important;
+	color: #F0CF72 !important;
+}
+
+/* Hide the "Quick Actions" heading text */
+.theme-osa .sidebar .sidebar-header {
+	display: none !important;
+}
+
+.theme-osa .sidebar .sidebar-divider {
+	background: linear-gradient(90deg, transparent 0%, rgba(233, 194, 94, 0.5) 50%, transparent 100%) !important;
+}
+
+.theme-osa .sidebar .nav-icon svg,
+.theme-osa .sidebar .sidebar-link:hover .nav-icon svg,
+.theme-osa .sidebar .sidebar-link.active .nav-icon svg {
+	color: inherit !important;
+}
+
+/* ─── Nav Bar ─── */
+.theme-osa .nav-bar {
+	background: linear-gradient(90deg, #8B1A3C 0%, #6B1A2A 100%) !important;
+	color: #ffffff !important;
+	border: none !important;
+	box-shadow: 0 4px 16px rgba(139, 26, 60, 0.25) !important;
+}
+
+.theme-osa .nav-bar h2 {
+	color: #E9C25E !important;
+	text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4) !important;
+	font-weight: 800 !important;
+}
+
+.theme-osa .notification-btn {
+	background: rgba(255, 255, 255, 0.1) !important;
+	border: 1px solid rgba(233, 194, 94, 0.3) !important;
+	color: #E9C25E !important;
+}
+
+/* ─── Cards ─── */
+.theme-osa .stat-card,
+.theme-osa .breakdown-section,
+.theme-osa .recent-section,
+.theme-osa .application-card,
+.theme-osa .form-control-bar {
+	background: linear-gradient(145deg, #ffffff, #fffafa) !important;
+	border: 1px solid rgba(139, 26, 60, 0.2) !important;
+	box-shadow: 0 8px 24px rgba(139, 26, 60, 0.06) !important;
+}
+
+.theme-osa .stat-card:hover,
+.theme-osa .application-card:hover {
+	border-color: rgba(212, 166, 42, 0.5) !important;
+	transform: translateY(-2px) !important;
+	box-shadow: 0 12px 30px rgba(139, 26, 60, 0.12) !important;
+}
+
+.theme-osa .stat-card .stat-value {
+	color: #7A1734 !important;
+}
+
+/* ─── Tab Bar ─── */
+.theme-osa .tab-bar {
+	background: #F5D5DE !important;
+	border: 1.5px solid #E8D5DA !important;
+	box-shadow: inset 0 2px 4px rgba(139, 26, 60, 0.05) !important;
+}
+
+.theme-osa .tab-btn {
+	color: #6B1A2A !important;
+}
+
+.theme-osa .tab-btn:hover:not(.tab-active) {
+	background: rgba(212, 166, 42, 0.15) !important;
+	color: #8B1A3C !important;
+}
+
+.theme-osa .tab-active {
+	background: linear-gradient(135deg, #8B1A3C, #6B1A2A) !important;
+	color: #E9C25E !important;
+	box-shadow: 0 4px 10px rgba(139, 26, 60, 0.3) !important;
+}
+
+.theme-osa .tab-count {
+	background: #E9C25E !important;
+	color: #3D0818 !important;
+}
+
+/* ─── Headers inside pages ─── */
+.theme-osa .section-header h2,
+.theme-osa .recent-item .recent-email,
+.theme-osa .card-title {
+	color: #7A1734 !important;
+	font-weight: 700 !important;
+}
+
+/* ─── Application form bar (OSA) ─── */
+.theme-osa .form-control-bar {
+	background: linear-gradient(135deg, #ffffff, #FEF7E0) !important;
+	border-left: 6px solid #D4A62A !important;
+}
+
+.theme-osa .form-control-bar.is-closed {
+	background: linear-gradient(135deg, #ffffff, #F8E9EC) !important;
+	border-left: 6px solid #8B1A3C !important;
+}
+
+/* ─── Tables and Lists ─── */
+.theme-osa .recent-item,
+.theme-osa .detail-section {
+	border-bottom: 1px solid rgba(139, 26, 60, 0.1) !important;
+}
+
+.theme-osa .recent-item:hover {
+	background: rgba(233, 194, 94, 0.08) !important;
+}
+
+/* ─── Buttons in Application Cards ─── */
+.theme-osa .action-btn.btn-accept,
+.theme-osa .action-btn.btn-deliver {
+	background: linear-gradient(135deg, #8B1A3C, #6B1A2A) !important;
+	color: #E9C25E !important;
+	border: none !important;
+}
+
+.theme-osa .action-btn.btn-accept:hover,
+.theme-osa .action-btn.btn-deliver:hover {
+	background: linear-gradient(135deg, #7A1734, #4a0d1e) !important;
+	box-shadow: 0 4px 12px rgba(139, 26, 60, 0.4) !important;
+}
+
+/* ==========================================================================
+   Applicant pages (Application Form + Status)
+   ========================================================================== */
+
+/* Greeting bar */
+.theme-osa .welcome-bar {
+	background: linear-gradient(90deg, #8B1A3C 0%, #6B1A2A 100%) !important;
+	border: 1px solid rgba(233, 194, 94, 0.35) !important;
+	color: #ffffff !important;
+	box-shadow: 0 4px 16px rgba(139, 26, 60, 0.25) !important;
+}
+
+.theme-osa .welcome-bar svg {
+	color: #E9C25E !important;
+}
+
+.theme-osa .welcome-bar .wb-action {
+	color: #F5D98B !important;
+	border-color: rgba(233, 194, 94, 0.45) !important;
+	background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.theme-osa .welcome-bar .wb-action:hover {
+	background: #E9C25E !important;
+	color: #3D0818 !important;
+}
+
+.theme-osa .welcome-bar .wb-action:hover svg {
+	color: #3D0818 !important;
+}
+
+/* Step progress */
+.theme-osa .step-circle {
+	border-color: #E8C7D0 !important;
+	color: #9B5A6C !important;
+}
+
+.theme-osa .step-active .step-circle {
+	background: linear-gradient(135deg, #8B1A3C, #6B1A2A) !important;
+	border-color: #D4A62A !important;
+	color: #E9C25E !important;
+	box-shadow: 0 0 0 4px rgba(212, 166, 42, 0.25), 0 4px 12px rgba(139, 26, 60, 0.3) !important;
+}
+
+.theme-osa .step-done .step-circle {
+	background: linear-gradient(135deg, #F0CF72, #D4A62A) !important;
+	border-color: #B8891F !important;
+	color: #3D0818 !important;
+	box-shadow: 0 2px 8px rgba(212, 166, 42, 0.35) !important;
+}
+
+.theme-osa .step-connector {
+	background: #EBD3D9 !important;
+}
+
+.theme-osa .step-done .step-connector,
+.theme-osa .step-active .step-connector {
+	background: linear-gradient(90deg, #D4A62A, #8B1A3C) !important;
+}
+
+/* Step title */
+.theme-osa .step-progress ~ .section-title {
+	color: #7A1734 !important;
+}
+
+.theme-osa .section-num {
+	background: linear-gradient(135deg, #F0CF72, #D4A62A) !important;
+	color: #3D0818 !important;
+	box-shadow: 0 2px 8px rgba(212, 166, 42, 0.35) !important;
+}
+
+/* Form card */
+.theme-osa .form-card {
+	background: linear-gradient(145deg, #ffffff, #fffafa) !important;
+	border: 1px solid rgba(139, 26, 60, 0.2) !important;
+	border-top: 4px solid #D4A62A !important;
+	box-shadow: 0 8px 24px rgba(139, 26, 60, 0.08) !important;
+}
+
+.theme-osa .form-card .field-label {
+	color: #6B1A2A !important;
+	font-weight: 700 !important;
+}
+
+.theme-osa .form-card .field-group input,
+.theme-osa .form-card .field-group select {
+	border-color: #E8D5DA !important;
+	background: #fffdfd !important;
+}
+
+.theme-osa .form-card .field-group input:hover,
+.theme-osa .form-card .field-group select:hover {
+	border-color: rgba(212, 166, 42, 0.6) !important;
+}
+
+.theme-osa .form-card .field-group input:focus,
+.theme-osa .form-card .field-group select:focus {
+	border-color: #8B1A3C !important;
+	box-shadow: 0 0 0 3px rgba(212, 166, 42, 0.25) !important;
+}
+
+/* Owner question / agreement boxes */
+.theme-osa .owner-question,
+.theme-osa .agree-checkbox,
+.theme-osa .doc-format-notice {
+	background: linear-gradient(135deg, #FEF7E0, #ffffff) !important;
+	border: 1px solid rgba(212, 166, 42, 0.45) !important;
+	border-left: 4px solid #D4A62A !important;
+}
+
+.theme-osa .owner-q-text {
+	color: #6B1A2A !important;
+}
+
+.theme-osa .doc-format-notice {
+	color: #7A1734 !important;
+}
+
+.theme-osa .agreement-body {
+	border-color: #E8D5DA !important;
+	background: #fffdfd !important;
+}
+
+.theme-osa .agreement-body::-webkit-scrollbar-thumb {
+	background: #D4A62A !important;
+}
+
+.theme-osa .cb-real:checked + .cb-box {
+	background: linear-gradient(135deg, #8B1A3C, #6B1A2A) !important;
+	border-color: #D4A62A !important;
+}
+
+.theme-osa .cb-real:checked + .cb-box::after {
+	border-color: #E9C25E !important;
+}
+
+/* Upload tiles */
+.theme-osa .upload-section-title {
+	color: #7A1734 !important;
+	border-bottom: 2px solid rgba(212, 166, 42, 0.5) !important;
+}
+
+.theme-osa .upload-tile {
+	border-color: #E0BFC8 !important;
+}
+
+.theme-osa .upload-tile:hover {
+	border-color: #D4A62A !important;
+	background: linear-gradient(135deg, #FEF7E0, #ffffff) !important;
+}
+
+.theme-osa .upload-tile.has-file {
+	border-style: solid !important;
+	border-color: #8B1A3C !important;
+	background: linear-gradient(135deg, #fffafa, #FEF7E0) !important;
+}
+
+.theme-osa .pdf-tag {
+	background: #D4A62A !important;
+	color: #3D0818 !important;
+}
+
+/* Navigation buttons */
+.theme-osa .btn-next,
+.theme-osa .btn-submit,
+.theme-osa .doc-link-btn,
+.theme-osa .btn-apply,
+.theme-osa .btn-reapply {
+	background: linear-gradient(135deg, #8B1A3C, #6B1A2A) !important;
+	color: #E9C25E !important;
+	border: 1px solid rgba(212, 166, 42, 0.5) !important;
+}
+
+.theme-osa .btn-next:hover,
+.theme-osa .btn-submit:hover,
+.theme-osa .doc-link-btn:hover,
+.theme-osa .btn-apply:hover,
+.theme-osa .btn-reapply:hover {
+	background: linear-gradient(135deg, #7A1734, #4a0d1e) !important;
+	box-shadow: 0 6px 20px rgba(139, 26, 60, 0.4) !important;
+}
+
+.theme-osa .btn-back {
+	border-color: #E0BFC8 !important;
+	color: #6B1A2A !important;
+}
+
+.theme-osa .btn-back:hover {
+	border-color: #D4A62A !important;
+	background: linear-gradient(135deg, #FEF7E0, #ffffff) !important;
+}
+
+/* Status page progress steps */
+.theme-osa .progress-steps {
+	border-color: rgba(139, 26, 60, 0.2) !important;
+}
+
+.theme-osa .ps-label {
+	color: #6B1A2A !important;
+}

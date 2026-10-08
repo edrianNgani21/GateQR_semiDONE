@@ -81,17 +81,28 @@ export const load: PageServerLoad = async ({ locals }) => {
             vehicle_type: applications.vehicle_information?.type || '-'
         } : null;
 
+        // Fetch most recent change vehicle request for this user
+        const { data: changeRequest } = await supabase
+            .from('change_vehicle_requests')
+            .select('*, new_vehicle:new_vehicle_id(brand, plate_number)')
+            .eq('user_id', userId)
+            .order('requested_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
         return {
             userEmail: locals.user.email,
             scheduledCount: scheduledCount || 0,
-            application
+            application,
+            changeRequest: changeRequest || null
         };
     } catch (error) {
         console.error('Error loading status:', error);
         return {
             userEmail: locals.user.email,
             scheduledCount: 0,
-            application: null
+            application: null,
+            changeRequest: null
         };
     }
 };

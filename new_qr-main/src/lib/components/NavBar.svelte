@@ -32,15 +32,25 @@
   }
 
   .navbar-title {
-    font-size: 1.25rem;
-    font-weight: 800;
+    font-size: 1.5rem;
+    font-weight: 900;
     color: var(--maroon);
     letter-spacing: -0.02em;
     margin: 0;
-    background: var(--gradient-maroon);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    position: relative;
+    padding-left: 1rem;
+  }
+
+  .navbar-title::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 10%;
+    bottom: 10%;
+    width: 6px;
+    background: var(--gradient-gold);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-gold-sm);
   }
 
   .navbar-links {

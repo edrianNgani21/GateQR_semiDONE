@@ -12,12 +12,12 @@
     let tab = $state('validation');
     const tabs = ['validation', 'distribution', 'overdue', 'release', 'registered', 'revoked'];
     const tabLabels: Record<string, string> = {
-        'validation':   'Accept Applications',
-        'distribution': 'Hardcopy Compliance',
-        'overdue':      'Failed to Appear',
+        'validation':   'Accept and Schedule Application',
+        'distribution': 'Hardcopy Compliance Schedules',
+        'overdue':      'Overdue Schedule',
         'release':      'Sticker Release',
         'registered':   'Registered',
-        'revoked':      'Revoked Registered'
+        'revoked':      'Revoked'
     };
     const navLinks = [
         { label: 'Applications', href: '/osa' },
@@ -45,6 +45,7 @@
     let bulkSchedule = $state('');
     let bulkReason = $state('');
     let bulkLoading = $state(false);
+    let selectedDistributionApp = $state<any>(null);
 
 
 
@@ -73,11 +74,13 @@
     }
 
     function selectAll() {
-        displayedApps.forEach(app => selectedApplicationIds.add(app.id));
+        const newSet = new Set(selectedApplicationIds);
+        displayedApps.forEach(app => newSet.add(app.id));
+        selectedApplicationIds = newSet;
     }
 
     function deselectAll() {
-        selectedApplicationIds.clear();
+        selectedApplicationIds = new Set();
     }
 
     function isAllSelected() {
@@ -169,7 +172,7 @@
     let displayedApps = $derived.by(() => {
         let filtered = apps;
 
-        if (tab === 'validation') filtered = filtered.filter(a => (a.status || '').toLowerCase() === 'dept_val' || (a.status || '').toLowerCase() === 'osa_val');
+        if (tab === 'validation') filtered = filtered.filter(a => ['pending', 'dept_val', 'osa_val'].includes((a.status || '').toLowerCase()));
         else if (tab === 'distribution') filtered = filtered.filter(a => (a.status || '').toLowerCase() === 'distributed' && !a.osa_dist_at && (!a.dist_sched || new Date(a.dist_sched) >= new Date() || a.invalid_reason === 'OVERDUE'));
         else if (tab === 'overdue') filtered = filtered.filter(a => (a.status || '').toLowerCase() === 'distributed' && !a.osa_dist_at && a.dist_sched && new Date(a.dist_sched) < new Date() && a.invalid_reason !== 'OVERDUE');
         else if (tab === 'release') filtered = filtered.filter(a => (a.status || '').toLowerCase() === 'distributed' && a.security_checked_at && !a.sticker_released_at);
@@ -187,13 +190,17 @@
             filtered = filtered.filter(a => a.campus && a.campus.toLowerCase() === selectedCampus.toLowerCase());
         }
 
-        if ((tab === 'distribution' || tab === 'overdue') && selectedScheduleDate) {
-            filtered = filtered.filter(a => {
-                if (!a.dist_sched) return false;
-                const appDate = new Date(a.dist_sched).toDateString();
-                const selectedDate = new Date(selectedScheduleDate as string).toDateString();
-                return appDate === selectedDate;
-            });
+        if (tab === 'distribution' || tab === 'overdue') {
+            if (selectedScheduleDate) {
+                filtered = filtered.filter(a => {
+                    if (!a.dist_sched) return false;
+                    const appDate = new Date(a.dist_sched).toDateString();
+                    const selectedDate = new Date(selectedScheduleDate as string).toDateString();
+                    return appDate === selectedDate;
+                });
+            } else {
+                filtered = [];
+            }
         }
 
         if (searchQuery) {
@@ -226,6 +233,20 @@
             }
         });
         return Array.from(uniqueDates).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+    });
+
+    // Number of applications inside each tab (display only)
+    let tabCounts = $derived.by(() => {
+        const now = new Date();
+        const st = (a: any) => (a.status || '').toLowerCase();
+        return {
+            validation: apps.filter(a => ['pending', 'dept_val', 'osa_val'].includes(st(a))).length,
+            distribution: apps.filter(a => st(a) === 'distributed' && !a.osa_dist_at && (!a.dist_sched || new Date(a.dist_sched) >= now || a.invalid_reason === 'OVERDUE')).length,
+            overdue: apps.filter(a => st(a) === 'distributed' && !a.osa_dist_at && a.dist_sched && new Date(a.dist_sched) < now && a.invalid_reason !== 'OVERDUE').length,
+            release: apps.filter(a => st(a) === 'distributed' && a.security_checked_at && !a.sticker_released_at).length,
+            registered: apps.filter(a => st(a) === 'completed' && a.sticker_installed_at).length,
+            revoked: apps.filter(a => st(a) === 'revoked').length
+        } as Record<string, number>;
     });
 
     let scheduleModalOpen = $state(false);
@@ -318,34 +339,25 @@
 </svelte:head>
 
 <AppShell userEmail={data.userEmail} showSidebar={true}>
-  <NavBar title="Applications" links={navLinks} />
+  <NavBar title="Manage Application" />
 
   <div class="applications-container">
-    <div class="page-header">
-      <div class="header-content">
-        <h1>Manage Application</h1>
-        <p class="header-subtitle">Review and process vehicle registration applications</p>
-      </div>
-      <div class="header-stats">
-        <div class="stat-badge">
-          <span class="stat-value">{displayedApps.length}</span>
-          <span class="stat-label">Showing</span>
-        </div>
-        <div class="stat-badge">
-          <span class="stat-value">{apps.length}</span>
-          <span class="stat-label">Total</span>
-        </div>
-      </div>
-    </div>
 
-    <TabBar tabs={tabs.map(t => tabLabels[t] || t)} active={tabLabels[tab] || tab} onchange={(label) => { const found = tabs.find(t => tabLabels[t] === label); if (found) tab = found; }} />
+    <TabBar tabs={tabs.map(t => tabLabels[t] || t)} counts={tabs.map(t => tabCounts[t] || 0)} active={tabLabels[tab] || tab} onchange={(label) => { 
+      const found = tabs.find(t => tabLabels[t] === label); 
+      if (found) { 
+        tab = found; 
+        selectedDistributionApp = null; 
+        selectedScheduleDate = null;
+      } 
+    }} />
 
     {#if tab === 'overdue'}
       <div class="overdue-banner">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
         </svg>
-        <span><strong>Failed to Appear:</strong> These applicants were scheduled to visit OSA for <strong>hardcopy submission</strong> but have <strong>not shown up past their scheduled date</strong>. Use <em>Continue Process</em> if they have since complied, or <em>Reschedule</em> to set them a new visit date.</span>
+        <span><strong>Failed to Appear on Schedule:</strong> These applicants were scheduled to visit OSA for <strong>hardcopy submission</strong> but have <strong>not shown up past their scheduled date</strong>. Use <em>Continue Process</em> if they have since complied, or <em>Reschedule</em> to set them a new visit date.</span>
       </div>
     {/if}
 
@@ -398,184 +410,311 @@
           <option value="RNP">RNP</option>
           <option value="PASEO">PASEO</option>
         </select>
-
-        {#if tab === 'distribution' || tab === 'overdue'}
-          <button class="filter-btn schedule-btn" onclick={() => schedulePanelOpen = !schedulePanelOpen} class:active={schedulePanelOpen}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-              <line x1="16" y1="2" x2="16" y2="6"/>
-              <line x1="8" y1="2" x2="8" y2="6"/>
-              <line x1="3" y1="10" x2="21" y2="10"/>
-            </svg>
-            Filter by Date
-          </button>
-        {/if}
       </div>
     </div>
 
     <div class="content-layout">
-      <div class="applications-list" class:with-schedule-panel={schedulePanelOpen && (tab === 'distribution' || tab === 'overdue')}>
-      {#each displayedApps as app}
-        <ApplicationCard
-          data={{
-          id: app.id || '-',
-          name: `${app.first_name} ${app.last_name}`,
-          role: app.role,
-          campus: app.campus,
-          'year level': app.year_level || '-',
-          email: app.user_email,
-          contact: app.mobile || app.contact_number,
-          facebook: app.facebook || '-',
-          department: app.department_name || '-',
-          'dept. email': app.department_email || '-',
-          vehicle: app.vehicle_make,
-          color: app.vehicle_color,
-          'vehicle type': app.vehicle_type,
-          plate: app.vehicle_plate,
-          owner: app.is_owner ? 'Yes' : 'No',
-          status: app.status,
-          crd: app.created_at,
-          dpt: app.dept_val_at,
-          osa: app.osa_val_at,
-          sch: app.dist_sched,
-          hdc: app.osa_dist_at,
-          sec: app.security_checked_at,
-          rel: app.sticker_released_at,
-          ins: app.sticker_installed_at,
-          exp: app.expires_at,
-          rejection_reason: app.invalid_reason || null,
-          qr_code: app.qr_code,
-          qr_unique_code: app.qr_unique_code,
-          documents: {
-            id: app.doc_id,
-            enrollment: app.doc_load,
-            or: app.doc_or,
-            cr: app.doc_cr,
-            license: app.doc_license,
-            letter: app.doc_letter
-          }
-        }}
-        selectable={tab === 'validation'}
-        selected={selectedApplicationIds.has(app.id)}
-        onselect={(selected) => toggleSelection(app.id, selected)}
-        showQR={app.qr_code != null && (tab === 'release' || tab === 'registered' || tab === 'revoked')}
-        {tab}>
-          {#snippet children()}
-            <ActionBar {tab} status={app.status} expiresAt={app.expires_at} onaction={(action) => handleAction(app.id, action)} />
-          {/snippet}
-        </ApplicationCard>
+      {#if (tab === 'distribution' || tab === 'overdue') && selectedDistributionApp}
+        {@const app = selectedDistributionApp}
+        <div class="full-detail-view">
+          <button class="back-btn" onclick={() => selectedDistributionApp = null}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+            Back to Schedules
+          </button>
+          
+          <div class="detail-card-wrapper">
+            <ApplicationCard
+              data={{
+              id: app.id || '-',
+              name: `${app.first_name} ${app.last_name}`,
+              role: app.role,
+              campus: app.campus,
+              'year level': app.year_level || '-',
+              email: app.user_email,
+              contact: app.mobile || app.contact_number,
+              facebook: app.facebook || '-',
+              department: app.department_name || '-',
+              'dept. email': app.department_email || '-',
+              vehicle: app.vehicle_make,
+              color: app.vehicle_color,
+              'vehicle type': app.vehicle_type,
+              plate: app.vehicle_plate,
+              owner: app.is_owner ? 'Yes' : 'No',
+              status: app.status,
+              crd: app.created_at,
+              dpt: app.dept_val_at,
+              osa: app.osa_val_at,
+              sch: app.dist_sched,
+              hdc: app.osa_dist_at,
+              sec: app.security_checked_at,
+              rel: app.sticker_released_at,
+              ins: app.sticker_installed_at,
+              exp: app.expires_at,
+              change_vehicle_request: app.change_vehicle_request,
+              is_change_vehicle: app.is_change_vehicle,
+              rejection_reason: app.invalid_reason || null,
+              qr_code: app.qr_code,
+              qr_unique_code: app.qr_unique_code,
+              documents: {
+                id: app.doc_id,
+                enrollment: app.doc_load,
+                or: app.doc_or,
+                cr: app.doc_cr,
+                license: app.doc_license,
+                letter: app.doc_letter
+              }
+            }}
+            startExpanded={true}
+            showQR={true}
+            {tab}>
+              {#snippet children()}
+                <ActionBar {tab} status={app.status} expiresAt={app.expires_at} onaction={(action) => handleAction(app.id, action)} />
+              {/snippet}
+            </ApplicationCard>
+          </div>
+        </div>
       {:else}
-        <div class="empty-state">
-          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-            <polyline points="14 2 14 8 20 8"/>
-            <line x1="12" y1="18" x2="12" y2="12"/>
-            <line x1="9" y1="15" x2="15" y2="15"/>
-          </svg>
-          <h3>No applications found</h3>
-          <p>There are no applications matching your current filters.</p>
-          <button class="clear-filters-btn" onclick={() => { 
-            searchQuery = ''; 
-            selectedRoles = [...allRoles]; 
-            selectedCampus = 'all'; 
-            selectedScheduleDate = null; 
-          }}>
-            Clear all filters
-          </button>
-        </div>
-      {/each}
-    </div>
-
-    <!-- Selected Applications Side Table -->
-    {#if tab === 'validation' && selectedApplicationIds.size > 0}
-      <div class="selected-apps-table">
-        <div class="table-header">
-          <span class="table-title">Selected Applications</span>
-          <span class="table-count">{selectedApplicationIds.size}</span>
-        </div>
-        <table class="mini-table">
-          <thead>
-            <tr>
-              <th>Email</th>
-              <th>Department</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each displayedApps.filter(app => selectedApplicationIds.has(app.id)) as app}
-              <tr>
-                <td>{app.user_email}</td>
-                <td>{app.department_name}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-        <div class="table-actions">
-          <button class="table-btn table-accept" onclick={() => handleBulkAction('accept')}>
-            Accept All
-          </button>
-          <button class="table-btn table-reject" onclick={() => handleBulkAction('reject')}>
-            Reject All
-          </button>
-        </div>
-      </div>
-    {/if}
-
-    <!-- Schedule Calendar Panel -->
-    {#if (tab === 'distribution' || tab === 'overdue') && schedulePanelOpen}
-      <div class="schedule-calendar-panel">
-        <div class="table-header">
-          <span class="table-title">📅 Scheduled Dates</span>
-          <span class="table-count">{scheduledDates.length}</span>
-        </div>
-        <div class="calendar-list">
-          {#if scheduledDates.length > 0}
-            {#each scheduledDates as date}
-              <div 
-                class="calendar-item" 
-                class:selected={selectedScheduleDate === date}
-                role="button"
-                tabindex="0"
-                onclick={() => selectedScheduleDate = selectedScheduleDate === date ? null : date}
-                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectedScheduleDate = selectedScheduleDate === date ? null : date; }}
-              >
-                <div class="calendar-icon-box">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-                    <line x1="16" y1="2" x2="16" y2="6"/>
-                    <line x1="8" y1="2" x2="8" y2="6"/>
-                    <line x1="3" y1="10" x2="21" y2="10"/>
-                  </svg>
-                  <span class="calendar-day-num">{new Date(date).getDate()}</span>
-                </div>
-                <div class="calendar-info">
-                  <div class="calendar-date">
-                    {new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                  </div>
-                  <div class="calendar-full-date">
-                    {new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
-                  </div>
-                </div>
-                <span class="date-count-badge">
-                  {apps.filter(a => a.dist_sched && a.dist_sched.startsWith(date)).length} app(s)
-                </span>
-              </div>
-            {/each}
-          {:else}
-            <div class="calendar-empty">
-              <p>No scheduled dates found</p>
+        {#if tab === 'distribution' || tab === 'overdue'}
+          {@const tabApps = apps.filter(a => (a.status || '').toLowerCase() === 'distributed' && !a.osa_dist_at && a.dist_sched && (tab === 'overdue' ? (new Date(a.dist_sched) < new Date() && a.invalid_reason !== 'OVERDUE') : (new Date(a.dist_sched) >= new Date() || a.invalid_reason === 'OVERDUE')))}
+          {@const calDates = tab === 'overdue' ? [...new Set(tabApps.map(a => new Date(a.dist_sched).toDateString()))].sort((a, b) => new Date(a).getTime() - new Date(b).getTime()) : scheduledDates}
+          <div class="schedule-calendar-panel left-panel">
+            <div class="table-header">
+              <span class="table-title">📅 {tab === 'overdue' ? 'Missed Schedule Dates' : 'Scheduled Dates'}</span>
+              <span class="table-count">{calDates.length}</span>
             </div>
-          {/if}
-        </div>
-        {#if selectedScheduleDate}
-          <div class="calendar-actions">
-            <button class="table-btn" onclick={() => selectedScheduleDate = null}>
-              Clear Date Filter
-            </button>
+            <div class="calendar-list">
+              {#if calDates.length > 0}
+                {#each calDates as date}
+                  <div 
+                    class="calendar-item" 
+                    class:selected={selectedScheduleDate === date}
+                    role="button"
+                    tabindex="0"
+                    onclick={() => selectedScheduleDate = selectedScheduleDate === date ? null : date}
+                    onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') selectedScheduleDate = selectedScheduleDate === date ? null : date; }}
+                  >
+                    <div class="calendar-icon-box">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                        <line x1="16" y1="2" x2="16" y2="6"/>
+                        <line x1="8" y1="2" x2="8" y2="6"/>
+                        <line x1="3" y1="10" x2="21" y2="10"/>
+                      </svg>
+                      <span class="calendar-day-num">{new Date(date).getDate()}</span>
+                    </div>
+                    <div class="calendar-info">
+                      <div class="calendar-date">
+                        {new Date(date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                      </div>
+                      <div class="calendar-full-date">
+                        {new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+                      </div>
+                    </div>
+                    <span class="date-count-badge">
+                      {tabApps.filter(a => new Date(a.dist_sched).toDateString() === date).length} app(s)
+                    </span>
+                  </div>
+                {/each}
+              {:else}
+                <div class="calendar-empty">
+                  <p>No scheduled dates found</p>
+                </div>
+              {/if}
+            </div>
+            {#if selectedScheduleDate}
+              <div class="calendar-actions">
+                <button class="table-btn" onclick={() => selectedScheduleDate = null}>
+                  Clear Date Filter
+                </button>
+              </div>
+            {/if}
           </div>
         {/if}
-      </div>
-    {/if}
-  </div>
+
+        <div class="applications-list" class:right-panel={tab === 'distribution' || tab === 'overdue'}>
+          {#if (tab === 'distribution' || tab === 'overdue') && !selectedScheduleDate}
+            <div class="empty-state">
+              <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                <line x1="16" y1="2" x2="16" y2="6"/>
+                <line x1="8" y1="2" x2="8" y2="6"/>
+                <line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+              <h3>No applications</h3>
+              <p>Select a date from the schedule on the left to view applicants.</p>
+            </div>
+          {:else}
+            {#each displayedApps as app}
+              {#if tab === 'distribution' || tab === 'overdue'}
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div class="app-clickable-wrapper" onclick={() => selectedDistributionApp = app} style="cursor: pointer;">
+                  <div style="pointer-events: none;">
+                    <ApplicationCard
+                      data={{
+                      id: app.id || '-',
+                      name: `${app.first_name} ${app.last_name}`,
+                      'dean approval': (app.status || '').toLowerCase() === 'pending' ? 'Pending' : 'Approved',
+                      role: app.role,
+                      campus: app.campus,
+                      'year level': app.year_level || '-',
+                      email: app.user_email,
+                      contact: app.mobile || app.contact_number,
+                      facebook: app.facebook || '-',
+                      department: app.department_name || '-',
+                      'dept. email': app.department_email || '-',
+                      vehicle: app.vehicle_make,
+                      color: app.vehicle_color,
+                      'vehicle type': app.vehicle_type,
+                      plate: app.vehicle_plate,
+                      owner: app.is_owner ? 'Yes' : 'No',
+                      status: app.status,
+                      crd: app.created_at,
+                      dpt: app.dept_val_at,
+                      osa: app.osa_val_at,
+                      sch: app.dist_sched,
+                      hdc: app.osa_dist_at,
+                      sec: app.security_checked_at,
+                      rel: app.sticker_released_at,
+                      ins: app.sticker_installed_at,
+                      exp: app.expires_at,
+                      change_vehicle_request: app.change_vehicle_request,
+                      is_change_vehicle: app.is_change_vehicle,
+                      rejection_reason: app.invalid_reason || null,
+                      qr_code: app.qr_code,
+                      qr_unique_code: app.qr_unique_code,
+                      documents: {
+                        id: app.doc_id,
+                        enrollment: app.doc_load,
+                        or: app.doc_or,
+                        cr: app.doc_cr,
+                        license: app.doc_license,
+                        letter: app.doc_letter
+                      }
+                    }}
+                    showQR={true}
+                    {tab}>
+                      {#snippet children()}
+                        <div style="pointer-events: auto;">
+                          <ActionBar {tab} status={app.status} expiresAt={app.expires_at} onaction={(action) => handleAction(app.id, action)} />
+                        </div>
+                      {/snippet}
+                    </ApplicationCard>
+                  </div>
+                </div>
+              {:else}
+                <ApplicationCard
+                  data={{
+                  id: app.id || '-',
+                  name: `${app.first_name} ${app.last_name}`,
+                  'dean approval': (app.status || '').toLowerCase() === 'pending' ? 'Pending' : 'Approved',
+                  role: app.role,
+                  campus: app.campus,
+                  'year level': app.year_level || '-',
+                  email: app.user_email,
+                  contact: app.mobile || app.contact_number,
+                  facebook: app.facebook || '-',
+                  department: app.department_name || '-',
+                  'dept. email': app.department_email || '-',
+                  vehicle: app.vehicle_make,
+                  color: app.vehicle_color,
+                  'vehicle type': app.vehicle_type,
+                  plate: app.vehicle_plate,
+                  owner: app.is_owner ? 'Yes' : 'No',
+                  status: app.status,
+                  crd: app.created_at,
+                  dpt: app.dept_val_at,
+                  osa: app.osa_val_at,
+                  sch: app.dist_sched,
+                  hdc: app.osa_dist_at,
+                  sec: app.security_checked_at,
+                  rel: app.sticker_released_at,
+                  ins: app.sticker_installed_at,
+                  exp: app.expires_at,
+                  change_vehicle_request: app.change_vehicle_request,
+                  is_change_vehicle: app.is_change_vehicle,
+                  rejection_reason: app.invalid_reason || null,
+                  qr_code: app.qr_code,
+                  qr_unique_code: app.qr_unique_code,
+                  documents: {
+                    id: app.doc_id,
+                    enrollment: app.doc_load,
+                    or: app.doc_or,
+                    cr: app.doc_cr,
+                    license: app.doc_license,
+                    letter: app.doc_letter
+                  }
+                }}
+                selectable={tab === 'validation'}
+                selected={selectedApplicationIds.has(app.id)}
+                onselect={(selected) => toggleSelection(app.id, selected)}
+                showQR={true}
+                {tab}>
+                  {#snippet children()}
+                    <ActionBar {tab} status={app.status} expiresAt={app.expires_at} onaction={(action) => handleAction(app.id, action)} />
+                  {/snippet}
+                </ApplicationCard>
+              {/if}
+            {:else}
+              <div class="empty-state">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                  <polyline points="14 2 14 8 20 8"/>
+                  <line x1="12" y1="18" x2="12" y2="12"/>
+                  <line x1="9" y1="15" x2="15" y2="15"/>
+                </svg>
+                <h3>No applications found</h3>
+                <p>There are no applications matching your current filters.</p>
+                <button class="clear-filters-btn" onclick={() => { 
+                  searchQuery = ''; 
+                  selectedRoles = [...allRoles]; 
+                  selectedCampus = 'all'; 
+                  selectedScheduleDate = null; 
+                }}>
+                  Clear all filters
+                </button>
+              </div>
+            {/each}
+          {/if}
+        </div>
+
+        {#if tab === 'validation' && selectedApplicationIds.size > 0}
+          <div class="selected-apps-table">
+            <div class="table-header">
+              <span class="table-title">Selected Applications</span>
+              <span class="table-count">{selectedApplicationIds.size}</span>
+            </div>
+            <table class="mini-table">
+              <thead>
+                <tr>
+                  <th>Email</th>
+                  <th>Department</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each displayedApps.filter(app => selectedApplicationIds.has(app.id)) as app}
+                  <tr>
+                    <td>{app.user_email}</td>
+                    <td>{app.department_name}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+            <div class="table-actions">
+              <button class="table-btn table-accept" onclick={() => handleBulkAction('accept')}>
+                Accept All
+              </button>
+              <button class="table-btn table-reject" onclick={() => handleBulkAction('reject')}>
+                Reject All
+              </button>
+            </div>
+          </div>
+        {/if}
+      {/if}
+    </div>
 </div>
 
   {#if scheduleModalOpen}
@@ -584,7 +723,7 @@
     <div class="modal-overlay" onclick={() => { if (!confirmLoading) cancelSchedule(); }} onkeydown={(e) => { if (e.key === 'Escape' && !confirmLoading) cancelSchedule(); }} role="dialog" aria-modal="true" tabindex="-1">
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="modal-content" onclick={(e) => e.stopPropagation()}>
-        <h3>{pendingAction?.action === 'reschedule' ? 'Reschedule OSA Visit' : 'Accept Application'}</h3>
+        <h3>{pendingAction?.action === 'reschedule' ? 'Reschedule OSA Visit' : 'Accept & Schedule Application'}</h3>
         <p>{pendingAction?.action === 'reschedule' ? 'Set a new OSA visit schedule for hardcopy submission' : 'Set an OSA visit schedule for hardcopy submission'}</p>
         <div class="schedule-form">
           <div class="schedule-row">
@@ -839,12 +978,15 @@
     gap: 2rem;
     align-items: flex-start;
     width: 100%;
+    flex: 1;
+    overflow: hidden;
   }
 
   .applications-list {
     flex: 1;
     min-width: 0;
     max-width: calc(100% - 320px);
+    padding-bottom: 2rem;
   }
 
   .applications-list.with-schedule-panel {
@@ -980,8 +1122,6 @@
     gap: 1rem;
     box-shadow: 0 4px 12px rgba(107, 26, 42, 0.15);
     flex-shrink: 0;
-    max-height: calc(100vh - 200px);
-    overflow-y: auto;
   }
 
   .calendar-list {
@@ -1243,12 +1383,22 @@
 
   .date-count-badge {
     margin-left: auto;
-    font-size: 0.75rem;
-    font-weight: 600;
-    padding: 0.25rem 0.6rem;
-    background: var(--maroon-light, #80000022);
-    color: var(--maroon);
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 0.3rem 0.75rem;
+    background: linear-gradient(135deg, #8B1A3C, #6B1A2A);
+    color: #F5D98B;
+    border: 1px solid rgba(212, 166, 42, 0.6);
     border-radius: 20px;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    box-shadow: 0 2px 6px rgba(139, 26, 60, 0.25);
+  }
+
+  .calendar-item.selected .date-count-badge {
+    background: linear-gradient(135deg, #F0CF72, #D4A62A);
+    color: #3D0818;
+    border-color: #B8891F;
   }
 
   .clear-filters-btn {
@@ -1400,6 +1550,61 @@
 
     .dropdown-btn {
       justify-content: center;
+    }
+  }
+
+  /* Custom Layout for Hardcopies Compliance (Distribution) */
+  .full-detail-view {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    animation: fadeIn 0.3s ease;
+  }
+
+  .back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.6rem 1rem;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+    align-self: flex-start;
+    transition: all 0.2s;
+  }
+  .back-btn:hover {
+    background: var(--maroon);
+    color: white;
+    border-color: var(--maroon);
+  }
+
+  .detail-card-wrapper {
+    width: 100%;
+  }
+
+  .app-clickable-wrapper {
+    transition: transform 0.2s, box-shadow 0.2s;
+    border-radius: var(--radius-md, 10px);
+  }
+  .app-clickable-wrapper:hover {
+    box-shadow: 0 6px 16px rgba(0,0,0,0.1);
+    border-radius: var(--radius-md, 10px);
+  }
+
+  .applications-list.right-panel {
+    flex: 1;
+    min-width: 0;
+    max-width: calc(100% - 420px);
+  }
+
+  @media (max-width: 1024px) {
+    .applications-list.right-panel {
+      max-width: 100%;
     }
   }
 </style>

@@ -44,11 +44,24 @@ export const load: PageServerLoad = async ({ locals }) => {
                     plate_number,
                     brand,
                     color,
-                    type
+                    type,
+                    qr_code
                 )
             `)
             .in('status', ['distributed', 'completed', 'revoked'])
             .order('created_at', { ascending: false });
+
+        const { data: changeReqs } = await supabase
+            .from('change_vehicle_requests')
+            .select('*')
+            .in('status', ['pending', 'approved', 'Pending', 'Approved']);
+
+        const changeReqMap = new Map<number, any>();
+        (changeReqs || []).forEach((cr: any) => {
+            if (!changeReqMap.has(cr.registration_id)) {
+                changeReqMap.set(cr.registration_id, cr);
+            }
+        });
 
         const vehicles = (rows || []).map(v => ({
             ...v,
@@ -61,7 +74,10 @@ export const load: PageServerLoad = async ({ locals }) => {
             doc_or: v.vehicle_information?.or_document || null,
             doc_cr: v.vehicle_information?.cr_document || null,
             doc_license: v.vehicle_information?.drivers_license || null,
-            doc_letter: v.vehicle_information?.authorization_letter || null
+            doc_letter: v.vehicle_information?.authorization_letter || null,
+            is_change_vehicle: changeReqMap.has(v.registration_id),
+            qr_code: v.qr_code || v.vehicle_information?.qr_code || null,
+            qr_unique_code: v.qr_unique_code || v.vehicle_information?.qr_unique_code || null
         }));
 
         // Fetch stats for dashboard
@@ -130,11 +146,11 @@ export const load: PageServerLoad = async ({ locals }) => {
                 const hour = new Date(log.check_in).getHours();
                 hourlyChart[hour]++;
                 
-                if (log.logged_status === 'Inside') {
+                if (!log.check_out) {
                     stats.registeredIn++;
                 }
                 
-                if (log.logged_status && log.logged_status !== 'OK') {
+                if (log.logged_status && log.logged_status !== 'OK' && log.logged_status !== 'Inside' && log.logged_status !== 'REGISTERED') {
                     stats.anomaliesToday++;
                 }
             });

@@ -13,50 +13,6 @@
 
   let searchQuery = $state("");
 
-  const allRoles = [
-    "student",
-    "employee",
-    "visitor",
-    "concessionaire",
-    "guest",
-  ];
-  let selectedRoles = $state([...allRoles]);
-  let roleDropdownOpen = $state(false);
-
-  let selectedCampus = $state("all");
-
-  function toggleRole(role: string) {
-    if (selectedRoles.includes(role)) {
-      selectedRoles = selectedRoles.filter((r) => r !== role);
-    } else {
-      selectedRoles = [...selectedRoles, role];
-    }
-  }
-
-  function getRoleDropdownLabel() {
-    if (selectedRoles.length === allRoles.length) return "All Roles";
-    if (selectedRoles.length === 0) return "No Roles";
-    if (selectedRoles.length === 1)
-      return (
-        selectedRoles[0].charAt(0).toUpperCase() + selectedRoles[0].slice(1)
-      );
-    return `${selectedRoles.length} Roles`;
-  }
-
-  function clickOutside(node: HTMLElement, callback: () => void) {
-    const handleClick = (e: MouseEvent) => {
-      if (node && !node.contains(e.target as Node) && !e.defaultPrevented) {
-        callback();
-      }
-    };
-    document.addEventListener("click", handleClick, true);
-    return {
-      destroy() {
-        document.removeEventListener("click", handleClick, true);
-      },
-    };
-  }
-
   $effect(() => {
     document.cookie = `dean_active_tab=${tab}; path=/dean; max-age=31536000; SameSite=Lax`;
   });
@@ -67,16 +23,6 @@
     if (tab === "validation")
       filtered = filtered.filter((a) => a.status === "dept_val");
     else filtered = filtered.filter((a) => a.status !== "dept_val");
-
-    if (selectedRoles.length !== allRoles.length) {
-      filtered = filtered.filter((a) =>
-        selectedRoles.includes((a.role || "").toLowerCase()),
-      );
-    }
-
-    if (selectedCampus !== "all") {
-      filtered = filtered.filter((a) => a.campus === selectedCampus);
-    }
 
     if (searchQuery) {
       const terms = searchQuery.toLowerCase().split(/\s+/).filter(Boolean);
@@ -178,55 +124,22 @@
         >
       {/if}
     </div>
-
-    <div class="filters">
-      <div
-        class="dropdown-wrap"
-        use:clickOutside={() => (roleDropdownOpen = false)}
-      >
-        <button
-          class="filter-select dropdown-btn"
-          onclick={() => (roleDropdownOpen = !roleDropdownOpen)}
-        >
-          {getRoleDropdownLabel()}
-        </button>
-        {#if roleDropdownOpen}
-          <div class="dropdown-menu">
-            {#each allRoles as role}
-              <label class="dropdown-item">
-                <input
-                  type="checkbox"
-                  checked={selectedRoles.includes(role)}
-                  onchange={() => toggleRole(role)}
-                />
-                {role.charAt(0).toUpperCase() + role.slice(1)}
-              </label>
-            {/each}
-          </div>
-        {/if}
-      </div>
-
-      <select bind:value={selectedCampus} class="filter-select">
-        <option value="all">All Campuses</option>
-        <option value="Liceo Main">Liceo Main</option>
-        <option value="RNP">RNP</option>
-        <option value="PASEO">PASEO</option>
-      </select>
-    </div>
   </div>
 
   <div class="cards-list">
     {#each displayedApps as app}
       <ApplicationCard
         showDocs={false}
+        showQR={true}
         data={{
-          id: app.id || "-",
-          name: `${app.first_name} ${app.last_name}`,
-          email: app.user_email || "-",
-          department: app.department_name || "-",
-          'student id': app.student_id || "-",
+          name: `${app.first_name || ''} ${app.last_name || ''}`.trim() || "-",
+          Email: app.user_email || app.email || "-",
+          'Id number': app.student_id || app.id_no || "-",
+          Department: app.department_name || "-",
           status: app.status,
           rejection_reason: app.invalid_reason || null,
+          qr_code: app.qr_code,
+          qr_unique_code: app.qr_unique_code,
         }}
       >
         {#snippet children()}
@@ -256,6 +169,12 @@
 <style>
   .page-header {
     margin-bottom: 1.5rem;
+  }
+
+  .cards-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
   }
 
   .header-content {

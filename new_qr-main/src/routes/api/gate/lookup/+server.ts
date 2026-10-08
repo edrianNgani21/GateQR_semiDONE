@@ -103,11 +103,23 @@ export const GET: RequestHandler = async ({ request, url }) => {
             return json({ registered: false }, { status: 404 });
         }
 
+        // Check if there is an approved change vehicle request (which means QR should be deactivated until sticker release)
+        const { data: activeChange } = await supabase
+            .from('change_vehicle_requests')
+            .select('status')
+            .eq('registration_id', reg.registration_id)
+            .in('status', ['Approved', 'approved'])
+            .maybeSingle();
+
+        if (activeChange) {
+            return json({ registered: false, error: 'QR Code is deactivated pending new vehicle sticker release.' }, { status: 403 });
+        }
+
         const { data: logRows } = await supabase
             .from('vehicle_log')
-            .select('log_id, in, out')
+            .select('vehicle_log_id, check_in, check_out')
             .eq('registration_id', reg.registration_id)
-            .order('in', { ascending: false })
+            .order('check_in', { ascending: false })
             .limit(1)
             .single();
 
@@ -117,16 +129,16 @@ export const GET: RequestHandler = async ({ request, url }) => {
         if (logRows) {
             const log = logRows;
             lastLog = {
-                log_id: log.log_id,
-                type: log.out ? 'out' : 'in',
-                date: new Date(log.in).toISOString().slice(0, 10), // YYYY-MM-DD
+                log_id: log.vehicle_log_id,
+                type: log.check_out ? 'out' : 'in',
+                date: new Date(log.check_in).toISOString().slice(0, 10), // YYYY-MM-DD
                 time: new Intl.DateTimeFormat('en-US', {
                     hour: '2-digit', minute: '2-digit', hour12: false
-                }).format(new Date(log.in)),
+                }).format(new Date(log.check_in)),
             };
 
             // Determine if vehicle is currently inside based on last log
-            logged_status = log.out ? 'Outside' : 'Inside';
+            logged_status = log.check_out ? 'Outside' : 'Inside';
         }
 
         return json({ registered: true, registration: reg, lastLog, logged_status });

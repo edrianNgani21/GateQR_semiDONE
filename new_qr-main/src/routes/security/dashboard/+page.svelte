@@ -1,548 +1,755 @@
 <script lang="ts">
-    import AppShell from '$lib/components/AppShell.svelte';
-    import NavBar from '$lib/components/NavBar.svelte';
+  import AppShell from '$lib/components/AppShell.svelte';
+  import NavBar from '$lib/components/NavBar.svelte';
+  import { invalidateAll } from '$app/navigation';
+  import { supabaseClient } from '$lib/supabaseClient';
 
-    let { data } = $props();
-    let userRole = $derived(data.userRole || 'security');
+  let { data } = $props();
+  let userRole = $derived(data.userRole || 'security');
 
-    const navLinks = $derived([
-        { label: 'Dashboard', href: '/security/dashboard' },
-        { label: 'Monitor', href: '/monitor' },
-        { label: 'Complaints', href: '/security/complaints', badge: data.unreadComplaints }
-    ]);
+  // Realtime subscription
+  $effect(() => {
+    const channel = supabaseClient
+        .channel('dashboard-realtime')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicle_log' }, () => {
+            invalidateAll();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'complaint' }, () => {
+            invalidateAll();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'parking_availability' }, () => {
+            invalidateAll();
+        })
+        .subscribe();
 
-    // ── Security Stats ────────────────────────────────────────────────────────────
-    let statsData = $derived((data.stats as any) || { 
-        totalEntriesToday: 0, 
-        currentlyInCampus: 0, 
-        flaggedEntries: 0, 
-        vehicleCount: 0, 
-        totalComplaints: 0 
-    });
-    let roleBreakdown = $derived((data.roleBreakdown as Record<string, number>) || { 
-        student: 0, employee: 0, visitor: 0, concessionaire: 0, guest: 0, vip: 0 
-    });
-    let hourlyChart = $derived((data.hourlyChart as number[]) || Array(24).fill(0));
-    let recentAlerts = $derived((data.recentAlerts as any[]) || []);
+    return () => {
+        supabaseClient.removeChannel(channel);
+    };
+  });
 
-    const statCards = $derived([
-        {
-            label: 'TOTAL ENTRIES',
-            value: statsData.totalEntriesToday,
-            desc: 'All vehicle entries today',
-            icon: `<path d="M12 2v20M2 12h20M12 2l4 4m-4-4l-4 4"/>`,
-            color: '#6b1a2a',
-            bg: 'rgba(107,26,42,0.08)'
-        },
-        {
-            label: 'CAMPUS PRESENCE',
-            value: statsData.currentlyInCampus,
-            desc: 'Vehicles inside campus right now',
-            icon: `<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>`,
-            color: '#059669',
-            bg: 'rgba(5,150,105,0.08)'
-        },
-        {
-            label: 'FLAGGED ALERTS',
-            value: statsData.flaggedEntries,
-            desc: 'Anomalies detected today',
-            icon: `<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>`,
-            color: '#dc2626',
-            bg: 'rgba(220,38,38,0.08)'
-        },
-        {
-            label: 'COMPLAINTS',
-            value: statsData.totalComplaints,
-            desc: 'Total complaints reported',
-            icon: `<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>`,
-            color: '#d97706',
-            bg: 'rgba(217,119,6,0.08)'
-        }
-    ]);
+  const navLinks = $derived([
+    { label: 'Dashboard', href: '/security/dashboard' },
+    { label: 'Application Review', href: '/security' },
+    { label: 'Vehicle Log', href: '/security/logs' },
+    { label: 'Complaints', href: '/security/complaints', badge: data.unreadComplaints }
+  ]);
 
-    const chartHeight = 180;
-    const maxChartValue = $derived(Math.max(...hourlyChart, 1));
+  // Security Statistics
+  let statsData = $derived((data.stats as any) || { 
+    totalEntriesToday: 0, 
+    twoWheelers: 0,
+    fourWheelers: 0,
+    mainCampusPresence: 0,
+    rnpCampusPresence: 0,
+    paseoCampusPresence: 0,
+    totalComplaints: 0 
+  });
+
+  let roleBreakdownByCampus = $derived((data.roleBreakdownByCampus as Record<string, Record<string, number>>) || {});
+  let showRoleBreakdown = $state<Record<string, boolean>>({});
+  
+  function toggleRoleBreakdown(campusLabel: string) {
+      showRoleBreakdown[campusLabel] = !showRoleBreakdown[campusLabel];
+  }
+  let hourlyChart = $derived((data.hourlyChart as number[]) || Array(24).fill(0));
+  let flaggedAlerts = $derived((data.flaggedAlerts as any[]) || []);
+
+  const statCards = $derived([
+    {
+      label: 'MAIN CAMPUS',
+      value: statsData.mainCampusPresence || 0,
+      desc: `2-Wheels: ${statsData.main2W || 0} • 4-Wheels: ${statsData.main4W || 0}`,
+      capacity: statsData.mainCapacity,
+      icon: `<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>`,
+      color: '#059669',
+      bg: 'rgba(5,150,105,0.08)',
+      event: statsData.mainEvent
+    },
+    {
+      label: 'RNP',
+      value: statsData.rnpCampusPresence || 0,
+      desc: `2-Wheels: ${statsData.rnp2W || 0} • 4-Wheels: ${statsData.rnp4W || 0}`,
+      capacity: statsData.rnpCapacity,
+      icon: `<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>`,
+      color: '#2563eb',
+      bg: 'rgba(37,99,235,0.08)',
+      event: statsData.rnpEvent
+    },
+    {
+      label: 'PASEO',
+      value: statsData.paseoCampusPresence || 0,
+      desc: `2-Wheels: ${statsData.paseo2W || 0} • 4-Wheels: ${statsData.paseo4W || 0}`,
+      capacity: statsData.paseoCapacity,
+      icon: `<path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>`,
+      color: '#7c3aed',
+      bg: 'rgba(124,58,237,0.08)',
+      event: statsData.paseoEvent
+    }
+  ]);
+
+  const maxChartValue = $derived(Math.max(...hourlyChart, 1));
 </script>
 
+<svelte:head>
+  <title>Security Dashboard | GateQR</title>
+  <meta name="description" content="Real-time security analytics and gate operations monitoring." />
+</svelte:head>
+
 <AppShell showSidebar={true} userEmail={data.userEmail} userRole={userRole}>
-    <NavBar title="Security Dashboard" links={navLinks} />
-    
-    <div class="dashboard-container">
-        <h1>Security Dashboard</h1>
-        <p class="dashboard-subtitle">Real-time monitoring and analytics for campus security</p>
-        
-        <!-- Stats Grid -->
-        <div class="stats-grid">
-            {#each statCards as card}
-                <div class="stat-card" style="--card-bg: {card.bg}; --card-color: {card.color}">
-                    <div class="stat-icon" style="color: {card.color}">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                            {@html card.icon}
-                        </svg>
-                    </div>
-                    <div class="stat-content">
-                        <div class="stat-value">{card.value}</div>
-                        <div class="stat-label">{card.label}</div>
-                        <div class="stat-desc">{card.desc}</div>
-                    </div>
-                </div>
-            {/each}
-        </div>
+  <NavBar title="Security Dashboard" />
+  <div class="dashboard-wrapper">
 
-        <!-- Hourly Traffic Chart -->
-        <div class="chart-section">
-            <h2>Hourly Entry Traffic Today</h2>
-            <div class="chart-container">
-                <div class="chart-bars">
-                    {#each hourlyChart as value, i}
-                        <div class="chart-bar-wrapper">
-                            <div 
-                                class="chart-bar" 
-                                style="height: {(value / maxChartValue) * 100}%"
-                                title="{i}:00 - {value} entries"
-                            ></div>
-                            <span class="chart-label">{i}</span>
-                        </div>
-                    {/each}
-                </div>
+    <!-- Stats Cards Grid -->
+    <div class="stats-grid">
+      {#each statCards as card}
+        <div class="stat-card" style="--card-color: {card.color}; --card-bg: {card.bg};">
+          {#if card.event}
+            <div class="event-badge">
+              <span class="event-dot"></span>
+              {card.event.name}
+              <div class="event-tooltip">
+                <strong>Start:</strong> {new Date(card.event.start).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}<br/>
+                <strong>End:</strong> {new Date(card.event.end).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'})}
+              </div>
             </div>
-        </div>
-
-        <!-- Role Breakdown -->
-        <div class="breakdown-section">
-            <h2>Entry Breakdown by Role</h2>
-            <div class="breakdown-grid">
-                {#each Object.entries(roleBreakdown) as [role, count]}
-                    <div class="breakdown-item">
-                        <div class="breakdown-label">{role.charAt(0).toUpperCase() + role.slice(1)}</div>
-                        <div class="breakdown-bar">
-                            <div class="breakdown-fill" style="width: {((count as number) / Math.max(...(Object.values(roleBreakdown) as number[]), 1)) * 100}%"></div>
-                        </div>
-                        <div class="breakdown-value">{count}</div>
+          {/if}
+          <div class="stat-icon-box">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              {@html card.icon}
+            </svg>
+          </div>
+          <div class="stat-details">
+            <div class="stat-value">{card.value}</div>
+            <div class="stat-label">{card.label}</div>
+            <div class="stat-desc" style="font-size: 0.75rem; color: #a0aec0; margin-top: 4px;">{card.desc}</div>
+            <div class="capacity-stats">
+                <div class="cap-item"><span>Cap:</span> {card.capacity?.capacity ?? 0}</div>
+                <div class="cap-item"><span>Occ:</span> <strong style="color:#e53e3e">{card.capacity?.occupied ?? 0}</strong></div>
+                <div class="cap-item"><span>Avail:</span> <strong style="color:#38a169">{card.capacity?.available ?? 0}</strong></div>
+            </div>
+          </div>
+          <div class="role-breakdown-toggle" onclick={() => toggleRoleBreakdown(card.label)} onkeydown={(e) => e.key === 'Enter' && toggleRoleBreakdown(card.label)} role="button" tabindex="0" aria-label="Toggle role breakdown">
+            <svg class:rotated={showRoleBreakdown[card.label]} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          {#if showRoleBreakdown[card.label]}
+            <div class="role-breakdown-panel" style="--accent: {card.color}">
+              <div class="breakdown-list">
+                {#each Object.entries(roleBreakdownByCampus[card.label === 'MAIN CAMPUS' ? 'Main Campus' : card.label] || {}) as [role, count]}
+                  {@const maxRoleVal = Math.max(...(Object.values(roleBreakdownByCampus[card.label === 'MAIN CAMPUS' ? 'Main Campus' : card.label] || {}) as number[]), 1)}
+                  {@const pct = Math.round(((count as number) / maxRoleVal) * 100)}
+                  <div class="breakdown-item">
+                    <div class="breakdown-top">
+                      <span class="role-title">{role.charAt(0).toUpperCase() + role.slice(1)}</span>
+                      <span class="role-count">{count}</span>
                     </div>
+                    <div class="progress-track">
+                      <div class="progress-fill" style="width: {pct}%"></div>
+                    </div>
+                  </div>
                 {/each}
+              </div>
             </div>
+          {/if}
         </div>
-
-        <!-- Recent Security Alerts -->
-        <div class="alerts-section">
-            <h2>Recent Security Alerts</h2>
-            {#if recentAlerts.length > 0}
-                <div class="alerts-list">
-                    {#each recentAlerts as alert}
-                        <div class="alert-item">
-                            <div class="alert-info">
-                                <div class="alert-time">{new Date(alert.in).toLocaleTimeString()}</div>
-                                <div class="alert-status">{alert.logged_status}</div>
-                            </div>
-                            <div class="alert-details">
-                                <div class="alert-plate">{alert.vehicle_plate || 'Unknown Plate'}</div>
-                                <div class="alert-role">{alert.role || 'Unknown Role'}</div>
-                            </div>
-                        </div>
-                    {/each}
-                </div>
-            {:else}
-                <div class="no-data">No security alerts today</div>
-            {/if}
-        </div>
-
-        <!-- Vehicle Monitoring Section -->
-        <div class="monitoring-section">
-            <h2>Vehicle Monitoring</h2>
-            <div class="monitoring-filters">
-                <div class="search-wrap">
-                    <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-                    </svg>
-                    <input
-                        type="text"
-                        placeholder="Search vehicles..."
-                        class="search-input"
-                    />
-                </div>
-                <div class="filter-buttons">
-                    <button class="filter-btn active">All Vehicles</button>
-                    <button class="filter-btn">2-Wheelers</button>
-                    <button class="filter-btn">4-Wheelers</button>
-                </div>
-            </div>
-            <div class="monitoring-grid">
-                <div class="no-data">Vehicle monitoring will be displayed here</div>
-            </div>
-        </div>
+      {/each}
     </div>
+
+    <!-- Analytics Grid: Hourly Traffic Chart + Role Breakdown -->
+    <div class="analytics-row">
+      <!-- Hourly Entry Traffic -->
+      <div class="card chart-card">
+        <div class="card-header">
+          <h2>Hourly Entry Traffic Today</h2>
+        </div>
+        <div class="chart-content">
+          <div class="chart-bars">
+            {#each hourlyChart as value, i}
+              <div class="bar-col">
+                <div class="bar-fill-wrap">
+                  <div
+                    class="bar-fill"
+                    style="height: {(value / maxChartValue) * 100}%"
+                    title="{i}:00 — {value} entries"
+                  ></div>
+                </div>
+                <span class="bar-hour">{i}</span>
+              </div>
+            {/each}
+          </div>
+          <div class="chart-axis-label">Hour of the Day (0:00 – 23:00)</div>
+      </div>
+    </div>
+
+    <!-- Flagged Alerts Section -->
+    <div class="card flagged-alerts-card">
+      <div class="card-header">
+        <div class="header-left">
+          <h2>Flagged Alerts</h2>
+        </div>
+        <span class="alerts-count-badge" class:has-alerts={flaggedAlerts.length > 0}>
+          {flaggedAlerts.length} Recorded
+        </span>
+      </div>
+
+      {#if flaggedAlerts.length > 0}
+        <div class="table-container">
+          <table class="flagged-table">
+            <thead>
+              <tr>
+                <th>Date &amp; Time</th>
+                <th>Alert / Reason</th>
+                <th>Plate Number</th>
+                <th>Driver / Role</th>
+                <th>Campus</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each flaggedAlerts as alert}
+                <tr>
+                  <td class="td-datetime">
+                    <span class="date-text">{new Date(alert.time).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    <span class="time-text">{new Date(alert.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </td>
+                  <td>
+                    <span
+                      class="reason-tag"
+                      class:danger={alert.reason.toLowerCase().includes('not recognized') || alert.reason.toLowerCase().includes('duplicate') || alert.reason.toLowerCase().includes('denied')}
+                    >
+                      {alert.reason}
+                    </span>
+                  </td>
+                  <td>
+                    <span class="plate-code">{alert.plate}</span>
+                  </td>
+                  <td>
+                    <div class="user-cell">
+                      <span class="user-name">{alert.name}</span>
+                      <span class="user-role">{alert.role}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="campus-tag">{alert.campus}</span>
+                  </td>
+                  <td>
+                    <span class="status-badge-chip">{alert.status}</span>
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {:else}
+        <div class="no-alerts-state">
+          <div>
+            <h4>No flagged alerts detected</h4>
+            <p>All recognized QR codes and gate entries are clean.</p>
+          </div>
+        </div>
+      {/if}
+    </div>
+  </div>
 </AppShell>
 
 <style>
-    .dashboard-container {
-        padding: 1.5rem;
-        max-width: 1200px;
-        margin: 0 auto;
-    }
+  :global(body) {
+    background-color: #f7f9fc;
+  }
 
-    h1 {
-        font-size: 1.5rem;
-        font-weight: 700;
-        margin-bottom: 0.25rem;
-        color: var(--text-primary);
-    }
+  .dashboard-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    max-width: 1400px;
+    margin: 0 auto;
+    width: 100%;
+    padding: 1.5rem;
+  }
 
-    .dashboard-subtitle {
-        font-size: 0.875rem;
-        color: var(--text-secondary);
-        margin-bottom: 1.5rem;
-        font-weight: 400;
-    }
+  /* Stats Grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.5rem;
+  }
 
-    h2 {
-        font-size: 1.1rem;
-        font-weight: 600;
-        margin-bottom: 1rem;
-        color: var(--text-primary);
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-    }
+  .stat-card {
+    background: #ffffff;
+    border-radius: 20px;
+    padding: 1.75rem;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1.5rem;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.02);
+    border: 1px solid rgba(0,0,0,0.03);
+    position: relative;
+    overflow: hidden;
+  }
 
-    h2::before {
-        content: '';
-        width: 3px;
-        height: 18px;
-        background: var(--maroon);
-        border-radius: 2px;
-    }
+  .stat-card > .stat-icon-box {
+    align-self: flex-start;
+  }
 
+  .event-badge {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: rgba(229, 62, 62, 0.1);
+    color: #e53e3e;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.65rem;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    border: 1px solid rgba(229, 62, 62, 0.2);
+    z-index: 10;
+    cursor: help;
+  }
+
+  .event-badge:hover .event-tooltip {
+    display: block;
+  }
+
+  .event-tooltip {
+    display: none;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 8px;
+    background: #2d3748;
+    color: #fff;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.7rem;
+    white-space: nowrap;
+    z-index: 20;
+    font-weight: 500;
+    letter-spacing: 0;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+  }
+
+  .event-tooltip::after {
+    content: '';
+    position: absolute;
+    top: -4px;
+    right: 12px;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 4px solid #2d3748;
+  }
+
+  .event-dot {
+    width: 6px;
+    height: 6px;
+    background: #e53e3e;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(229, 62, 62, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 4px rgba(229, 62, 62, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(229, 62, 62, 0); }
+  }
+
+  .stat-icon-box {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--card-bg);
+    color: var(--card-color);
+    flex-shrink: 0;
+  }
+
+  .stat-details {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .stat-value {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: #1a202c;
+    line-height: 1.2;
+  }
+
+  .stat-label {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #718096;
+    margin-top: 0.25rem;
+  }
+
+  /* Card Container */
+  .card {
+    background: #ffffff;
+    border-radius: 20px;
+    padding: 1.75rem;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.02);
+    border: 1px solid rgba(0,0,0,0.03);
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.5rem;
+  }
+
+  .card-header h2 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: #1a202c;
+    margin: 0;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .alerts-count-badge {
+    padding: 0.25rem 0.65rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: #f1f5f9;
+    color: #475569;
+  }
+
+  .alerts-count-badge.has-alerts {
+    background: #fef2f2;
+    color: #b91c1c;
+  }
+
+  /* Flagged Alerts Small Table */
+  .table-container {
+    overflow-x: auto;
+    border: 1px solid rgba(0,0,0,0.05);
+    border-radius: 12px;
+  }
+
+  .flagged-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    text-align: left;
+  }
+
+  .flagged-table th {
+    background: #f7fafc;
+    padding: 0.85rem 1rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #4a5568;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+  }
+
+  .flagged-table td {
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid rgba(0,0,0,0.03);
+    vertical-align: middle;
+  }
+
+  .td-datetime {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  .date-text {
+    font-weight: 600;
+    color: #2d3748;
+    font-size: 0.85rem;
+  }
+
+  .time-text {
+    font-size: 0.75rem;
+    color: #718096;
+  }
+
+  .reason-tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.65rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: #fef3c7;
+    color: #b45309;
+  }
+
+  .reason-tag.danger {
+    background: #fef2f2;
+    color: #c53030;
+  }
+
+  .plate-code {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
+    background: #edf2f7;
+    font-family: monospace;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: #2d3748;
+  }
+
+  .user-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  .user-name {
+    font-weight: 600;
+    color: #2d3748;
+  }
+
+  .user-role {
+    font-size: 0.75rem;
+    color: #718096;
+  }
+
+  .campus-tag {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    background: #ebf8ff;
+    border-radius: 6px;
+    color: #2b6cb0;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .status-badge-chip {
+    display: inline-block;
+    padding: 0.2rem 0.6rem;
+    background: #edf2f7;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #4a5568;
+  }
+
+  .no-alerts-state {
+    padding: 1.5rem;
+    text-align: center;
+  }
+
+  .no-alerts-state h4 {
+    margin: 0 0 0.25rem 0;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #2d3748;
+  }
+
+  .no-alerts-state p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #718096;
+  }
+
+  /* Analytics Row */
+  .analytics-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 1.5rem;
+  }
+
+  @media (max-width: 900px) {
+    .analytics-row {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* Chart Card */
+  .chart-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .chart-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.4rem;
+    height: 180px;
+    padding-top: 1rem;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+  }
+
+  .bar-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+    justify-content: flex-end;
+    gap: 0.4rem;
+  }
+
+  .bar-fill-wrap {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+
+  .bar-fill {
+    width: 70%;
+    min-height: 4px;
+    background: #805ad5; /* Purple tone like image */
+    border-radius: 4px 4px 0 0;
+    transition: height 0.3s ease, background 0.2s;
+  }
+  
+  .bar-col:nth-child(even) .bar-fill {
+    background: #38b2ac; /* Teal tone like image */
+  }
+
+  .bar-hour {
+    font-size: 0.7rem;
+    color: #a0aec0;
+  }
+
+  .chart-axis-label {
+    text-align: center;
+    font-size: 0.75rem;
+    color: #a0aec0;
+    font-weight: 500;
+    margin-top: 0.5rem;
+  }
+
+  /* Role Breakdown */
+  .breakdown-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .breakdown-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .breakdown-top {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.85rem;
+  }
+
+  .role-title {
+    font-weight: 600;
+    color: #2d3748;
+  }
+
+  .role-count {
+    color: #718096;
+    font-weight: 500;
+  }
+
+  .progress-track {
+    width: 100%;
+    height: 8px;
+    background: #edf2f7;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: #805ad5;
+    border-radius: 4px;
+    transition: width 0.4s ease;
+  }
+
+  .capacity-stats {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px dashed #e2e8f0;
+    font-size: 0.7rem;
+    color: #4a5568;
+    width: 100%;
+  }
+
+  .cap-item span {
+    color: #a0aec0;
+    margin-right: 2px;
+  }
+
+  .role-breakdown-toggle {
+    position: absolute;
+    bottom: 0.75rem;
+    right: 1.75rem;
+    cursor: pointer;
+    color: #a0aec0;
+    transition: color 0.2s;
+    padding: 0.25rem;
+    border-radius: 50%;
+  }
+  .role-breakdown-toggle:hover {
+    color: #4a5568;
+    background: #edf2f7;
+  }
+  .role-breakdown-toggle svg {
+    transition: transform 0.2s;
+  }
+  .role-breakdown-toggle svg.rotated {
+    transform: rotate(180deg);
+  }
+
+  .role-breakdown-panel {
+    width: 100%;
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px dashed #e2e8f0;
+  }
+
+  @media (max-width: 640px) {
+    .dashboard-wrapper {
+      padding: 0.75rem;
+      gap: 1rem;
+    }
     .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-        gap: 1rem;
-        margin-bottom: 1.5rem;
+      grid-template-columns: 1fr;
+      gap: 1rem;
     }
-
     .stat-card {
-        background: #ffffff;
-        border: 1px solid rgba(0,0,0,0.08);
-        border-radius: 12px;
-        padding: 1.25rem;
-        display: flex;
-        align-items: flex-start;
-        gap: 1rem;
-        transition: all 0.2s;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+      padding: 1.25rem;
+      gap: 1rem;
     }
-
-    .stat-card:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-    }
-
-    .stat-icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 12px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: var(--card-bg);
-        color: var(--card-color);
-        font-size: 1.25rem;
-    }
-
-    .stat-content {
-        flex: 1;
-    }
-
     .stat-value {
-        font-size: 1.75rem;
-        font-weight: 700;
-        color: var(--card-color);
-        line-height: 1;
-        margin-bottom: 0.25rem;
+      font-size: 1.5rem;
     }
-
-    .stat-label {
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        margin-bottom: 0.25rem;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
+    .card {
+      padding: 1.25rem;
     }
-
-    .stat-desc {
-        font-size: 0.75rem;
-        color: var(--text-secondary);
-        font-weight: 400;
+    .chart-content {
+      overflow-x: auto;
+      padding-bottom: 0.5rem;
     }
-
-    .chart-section,
-    .breakdown-section,
-    .alerts-section {
-        background: #ffffff;
-        border: 1px solid rgba(0,0,0,0.08);
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-    }
-
-    .chart-container {
-        height: var(--chart-height);
-        position: relative;
-        background: #f8fafc;
-        border-radius: 12px;
-        padding: 1rem;
-    }
-
     .chart-bars {
-        display: flex;
-        align-items: flex-end;
-        justify-content: space-between;
-        height: 100%;
-        gap: 6px;
+      min-width: 480px;
     }
-
-    .chart-bar-wrapper {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        height: 100%;
+    .capacity-stats {
+      flex-wrap: wrap;
+      gap: 0.5rem;
     }
-
-    .chart-bar {
-        width: 100%;
-        background: var(--maroon);
-        border-radius: 4px 4px 0 0;
-        transition: height 0.3s ease;
-        min-height: 4px;
-    }
-
-    .chart-bar:hover {
-        background: var(--maroon-light);
-    }
-
-    .chart-label {
-        font-size: 0.65rem;
-        color: var(--text-secondary);
-        margin-top: 6px;
-        font-weight: 500;
-    }
-
-    .breakdown-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        gap: 1rem;
-    }
-
-    .breakdown-item {
-        background: #f8fafc;
-        border: 1px solid rgba(0,0,0,0.06);
-        border-radius: 10px;
-        padding: 1rem;
-        display: flex;
-        flex-direction: column;
-        gap: 0.5rem;
-        transition: all 0.2s;
-    }
-
-    .breakdown-item:hover {
-        border-color: var(--maroon);
-    }
-
-    .breakdown-label {
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: var(--text-primary);
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-    }
-
-    .breakdown-bar {
-        height: 8px;
-        background: #e2e8f0;
-        border-radius: 4px;
-        overflow: hidden;
-    }
-
-    .breakdown-fill {
-        height: 100%;
-        background: var(--maroon);
-        border-radius: 4px;
-        transition: width 0.3s ease;
-    }
-
-    .breakdown-value {
-        font-size: 1.25rem;
-        font-weight: 700;
-        color: var(--text-primary);
-        margin-top: 0.25rem;
-    }
-
-    .alerts-list {
-        display: flex;
-        flex-direction: column;
-        gap: 0.75rem;
-    }
-
-    .alert-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 1rem;
-        background: #fef2f2;
-        border: 1px solid #fecaca;
-        border-radius: 8px;
-        transition: all 0.2s;
-    }
-
-    .alert-item:hover {
-        background: #fee2e2;
-        border-color: #fca5a5;
-    }
-
-    .alert-info {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-    }
-
-    .alert-time {
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: #b91c1c;
-    }
-
-    .alert-status {
-        font-size: 0.7rem;
-        color: #dc2626;
-        text-transform: uppercase;
-        font-weight: 600;
-        letter-spacing: 0.03em;
-    }
-
-    .alert-details {
-        display: flex;
-        flex-direction: column;
-        gap: 0.25rem;
-        text-align: right;
-    }
-
-    .alert-plate {
-        font-size: 0.85rem;
-        font-weight: 600;
-        color: var(--text-primary);
-    }
-
-    .alert-role {
-        font-size: 0.75rem;
-        color: var(--text-secondary);
-        font-weight: 400;
-    }
-
-    .no-data {
-        text-align: center;
-        padding: 2rem;
-        color: var(--text-secondary);
-        font-style: italic;
-        background: #f8fafc;
-        border-radius: 8px;
-        border: 1px dashed #e2e8f0;
-    }
-
-    .monitoring-section {
-        background: #ffffff;
-        border: 1px solid rgba(0,0,0,0.08);
-        border-radius: 12px;
-        padding: 1.5rem;
-        margin-bottom: 1.5rem;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
-    }
-
-    .monitoring-filters {
-        display: flex;
-        gap: 0.75rem;
-        margin-bottom: 1rem;
-        flex-wrap: wrap;
-    }
-
-    .search-wrap {
-        flex: 1;
-        min-width: 200px;
-        position: relative;
-    }
-
-    .search-icon {
-        position: absolute;
-        left: 0.875rem;
-        top: 50%;
-        transform: translateY(-50%);
-        color: var(--text-secondary);
-        pointer-events: none;
-    }
-
-    .search-input {
-        width: 100%;
-        padding: 0.625rem 0.875rem 0.625rem 2.5rem;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        font-size: 0.875rem;
-        background: #ffffff;
-        transition: all 0.2s;
-    }
-
-    .search-input:focus {
-        outline: none;
-        border-color: var(--maroon);
-        box-shadow: 0 0 0 2px rgba(107,26,42,0.1);
-    }
-
-    .filter-buttons {
-        display: flex;
-        gap: 0.5rem;
-    }
-
-    .filter-btn {
-        padding: 0.5rem 1rem;
-        border: 1px solid #e2e8f0;
-        border-radius: 8px;
-        background: #ffffff;
-        font-size: 0.8rem;
-        font-weight: 500;
-        color: var(--text-secondary);
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-
-    .filter-btn:hover {
-        border-color: var(--maroon);
-        color: var(--maroon);
-    }
-
-    .filter-btn.active {
-        background: var(--maroon);
-        border-color: var(--maroon);
-        color: white;
-    }
-
-    .monitoring-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-        gap: 1rem;
-    }
-
-    @media (max-width: 768px) {
-        .stats-grid {
-            grid-template-columns: 1fr;
-        }
-
-        .breakdown-grid {
-            grid-template-columns: 1fr;
-        }
-
-        h1 {
-            font-size: 1.25rem;
-        }
-    }
+  }
 </style>

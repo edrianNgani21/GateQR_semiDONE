@@ -1,5 +1,9 @@
 <script lang="ts">
+  import { page } from '$app/stores';
+  import '$lib/styles/theme-gold.css';
   let { title = 'GateQR', userEmail = '', children, showSidebar = false, userRole = 'osa' } = $props();
+
+  let currentPath = $derived($page.url.pathname);
 
   // Notification state
   let notifications = $state<any[]>([]);
@@ -119,7 +123,7 @@
 
   const osaActions = [
     {
-      label: 'OSA Dashboard',
+      label: 'Office of Student Affairs Dashboard',
       href: '/osa/dashboard',
       icon: `<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><line x1="10" y1="17" x2="10" y2="17"/>`,
       description: 'View dashboard and statistics'
@@ -129,6 +133,12 @@
       href: '/osa',
       icon: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>`,
       description: 'Review and process vehicle registrations'
+    },
+    {
+      label: 'Request to Change Registration Details',
+      href: '/osa/change-requests',
+      icon: `<path d="M16 3h5v5"/><path d="M4 20L21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/>`,
+      description: 'Review requests to change registration details'
     },
     {
       label: 'Add Admin',
@@ -158,16 +168,28 @@
       description: 'View security dashboard and stats'
     },
     {
-      label: 'Vehicle Operations',
+      label: 'Application Review',
       href: '/security',
       icon: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>`,
-      description: 'Manage registered vehicles'
+      description: 'Review applications and stickers'
+    },
+    {
+      label: 'Vehicle Log',
+      href: '/security/logs',
+      icon: `<path d="M12 2v20M2 12h20M12 2l4 4m-4-4l-4 4"/>`,
+      description: 'Gate entry and exit history logs'
     },
     {
       label: 'Complaints',
       href: '/security/complaints',
       icon: `<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>`,
       description: 'View and manage complaints'
+    },
+    {
+      label: 'Campus Capacity',
+      href: '/security/capacity',
+      icon: `<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/><path d="M12 22v-7"/><path d="M20 22v-7"/>`,
+      description: 'Manage capacity per campus'
     }
   ];
 
@@ -175,7 +197,7 @@
 </script>
 
 <!-- Page shell -->
-<main class="app-shell">
+<main class="app-shell" class:theme-osa={userRole === 'security' || currentPath.startsWith('/security') || (userRole === 'osa' && !currentPath.startsWith('/dean') && !currentPath.startsWith('/monitor'))}>
   {#if showSidebar}
     <aside class="sidebar">
       <!-- Brand Section -->
@@ -199,7 +221,7 @@
         </div>
         <div class="user-info">
           <span class="user-email">{userEmail}</span>
-          <span class="user-role">{userRole === 'security' ? 'Security Officer' : 'OSA Admin'}</span>
+          <span class="user-role">{userRole === 'security' ? 'SECURITY ADMIN' : 'OSA ADMIN'}</span>
         </div>
         <button class="logout-btn" onclick={handleLogout} title="Logout">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -219,7 +241,7 @@
       </div>
       <nav class="sidebar-nav">
         {#each quickActions as action}
-          <a href={action.href} class="sidebar-link">
+          <a href={action.href} class="sidebar-link" class:active={currentPath === action.href}>
             <div class="sidebar-icon">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 {@html action.icon}
@@ -297,102 +319,78 @@
     display: flex;
     gap: var(--space-xl);
     background: var(--bg-gradient);
+    align-items: flex-start;
   }
 
   .sidebar {
-    width: 360px;
+    width: 350px;
     flex-shrink: 0;
     background: var(--surface);
     border-radius: var(--radius-xl);
     padding: var(--space-lg);
-    height: fit-content;
     position: sticky;
     top: var(--space-xl);
+    align-self: flex-start;
     display: flex;
     flex-direction: column;
-    gap: var(--space-lg);
+    gap: var(--space-sm);
     box-shadow: var(--shadow-xl);
     border: 1px solid var(--border-light);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
+    z-index: 40;
   }
+
+
 
   .sidebar-brand {
     display: flex;
     align-items: center;
-    gap: var(--space-md);
-    padding: var(--space-md);
-    background: var(--gradient-maroon);
-    border-radius: var(--radius-lg);
-    box-shadow: var(--shadow-gold-md);
-    position: relative;
-    overflow: hidden;
-  }
-
-  .sidebar-brand::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 200%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-    animation: shimmer 3s infinite;
+    gap: var(--space-sm);
+    padding: var(--space-sm) 0 var(--space-md) 0;
   }
 
   .brand-logo {
-    width: 64px;
-    height: 64px;
-    background: rgba(255, 255, 255, 0.2);
-    border: 2px solid rgba(255, 255, 255, 0.4);
-    border-radius: var(--radius-md);
+    width: 52px;
+    height: 52px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #fff;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    position: relative;
-    z-index: 1;
-    overflow: hidden;
+    flex-shrink: 0;
   }
 
   .brand-logo img {
     width: 100%;
     height: 100%;
     object-fit: contain;
-    padding: 4px;
   }
 
   .brand-info {
     display: flex;
     flex-direction: column;
-    gap: var(--space-xs);
-    position: relative;
-    z-index: 1;
+    gap: 2px;
   }
 
   .brand-name {
-    font-size: 1.5rem;
+    font-size: 1.25rem;
     font-weight: 800;
-    color: #fff;
-    letter-spacing: -0.02em;
-    text-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    color: var(--maroon);
+    letter-spacing: -0.01em;
   }
 
   .brand-sub {
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.9);
-    font-weight: 500;
-    letter-spacing: 0.05em;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+    line-height: 1.2;
     text-transform: uppercase;
   }
 
   .sidebar-user {
     display: flex;
     align-items: center;
-    gap: var(--space-md);
-    padding: var(--space-md);
+    gap: var(--space-sm);
+    padding: var(--space-sm);
     background: var(--maroon-muted);
     border: 1px solid var(--maroon-tint);
     border-radius: var(--radius-lg);
@@ -401,12 +399,12 @@
 
   .sidebar-user:hover {
     box-shadow: var(--shadow-md);
-    transform: translateY(-2px);
+    transform: translateY(-1px);
   }
 
   .user-avatar {
-    width: 48px;
-    height: 48px;
+    width: 50px;
+    height: 50px;
     background: var(--gradient-maroon);
     border-radius: 50%;
     display: flex;
@@ -414,9 +412,9 @@
     justify-content: center;
     color: #fff;
     box-shadow: var(--shadow-gold-sm);
-    border: 3px solid white;
+    border: 2px solid white;
     font-weight: 700;
-    font-size: 1.125rem;
+    font-size: 1rem;
   }
 
   .user-info {
@@ -488,16 +486,16 @@
   .sidebar-nav {
     display: flex;
     flex-direction: column;
-    gap: var(--space-sm);
+    gap: 0.35rem;
   }
 
   .sidebar-link {
     display: flex;
     align-items: center;
-    gap: var(--space-md);
-    padding: var(--space-md);
+    gap: var(--space-sm);
+    padding: var(--space-sm);
     background: var(--surface);
-    border: 2px solid var(--border-light);
+    border: 1px solid var(--border-light);
     border-radius: var(--radius-md);
     text-decoration: none;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -518,19 +516,19 @@
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .sidebar-link:hover {
+  .sidebar-link:hover, .sidebar-link.active {
     border-color: var(--gold);
     transform: translateX(4px);
     box-shadow: var(--shadow-gold-sm);
   }
 
-  .sidebar-link:hover::before {
+  .sidebar-link:hover::before, .sidebar-link.active::before {
     transform: scaleY(1);
   }
 
   .sidebar-icon {
-    width: 44px;
-    height: 44px;
+    width: 46px;
+    height: 46px;
     background: var(--maroon-muted);
     border: 1px solid var(--maroon-tint);
     border-radius: var(--radius-md);
@@ -542,7 +540,7 @@
     transition: all 0.3s;
   }
 
-  .sidebar-link:hover .sidebar-icon {
+  .sidebar-link:hover .sidebar-icon, .sidebar-link.active .sidebar-icon {
     background: var(--gradient-gold);
     color: var(--text-primary);
     border-color: var(--gold);
@@ -555,21 +553,21 @@
   }
 
   .sidebar-label {
-    font-size: 0.9rem;
+    font-size: 0.85rem;
     font-weight: 600;
     color: var(--text-primary);
-    margin-bottom: var(--space-xs);
+    margin-bottom: 2px;
     transition: color 0.3s;
   }
 
-  .sidebar-link:hover .sidebar-label {
+  .sidebar-link:hover .sidebar-label, .sidebar-link.active .sidebar-label {
     color: var(--maroon);
   }
 
   .sidebar-desc {
-    font-size: 0.75rem;
+    font-size: 0.7rem;
     color: var(--text-muted);
-    line-height: 1.4;
+    line-height: 1.3;
   }
 
   .shell-content {

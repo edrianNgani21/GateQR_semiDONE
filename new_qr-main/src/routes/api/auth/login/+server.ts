@@ -76,13 +76,27 @@ export const POST: RequestHandler = async ({ request }) => {
         
         console.log('[OTP] Successfully stored OTP in database:', otpData);
 
-        // Send email (this is the main bottleneck, but we can't skip it)
-        // Fire and forget - don't wait for email completion for response
+        // Send email with OSA sender
         sendEmail(
             email,
-            'Your GateQR Login Code',
+            'Your GateQR Login OTP Code',
             `Your login code is: ${otp}. It will expire in 10 minutes.`,
-            `<h3>Welcome to GateQR</h3><p>Your login code is: <strong>${otp}</strong></p><p>It will expire in 10 minutes.</p>`
+            `<div style="font-family: Arial, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 12px; background: #ffffff;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h2 style="color: #7f1d1d; margin: 0; font-size: 22px;">Liceo GateQR</h2>
+                    <p style="color: #64748b; font-size: 13px; margin: 4px 0 0 0;">Office of Student Affairs (OSA)</p>
+                </div>
+                <div style="background: #f8fafc; border-radius: 10px; padding: 20px; text-align: center; border: 1px dashed #cbd5e1; margin-bottom: 20px;">
+                    <p style="font-size: 14px; color: #475569; margin: 0 0 10px 0;">Your One-Time Password (OTP) is:</p>
+                    <div style="font-size: 34px; font-weight: 800; letter-spacing: 6px; color: #7f1d1d; font-family: monospace;">${otp}</div>
+                    <p style="font-size: 12px; color: #94a3b8; margin: 12px 0 0 0;">This code is valid for 10 minutes. Do not share it with anyone.</p>
+                </div>
+                <p style="font-size: 11px; color: #94a3b8; text-align: center; margin: 0; line-height: 1.4;">
+                    Liceo de Cagayan University &bull; Office of Student Affairs<br>
+                    <a href="mailto:aluban98304@liceo.edu.ph" style="color: #7f1d1d; text-decoration: none;">aluban98304@liceo.edu.ph</a>
+                </p>
+            </div>`,
+            `"Liceo OSA - GateQR" <aluban98304@liceo.edu.ph>`
         ).catch(err => console.error('Email send error:', err));
 
         // For testing/development, log the OTP immediately

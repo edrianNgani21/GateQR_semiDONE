@@ -1,5 +1,6 @@
 <script lang="ts">
     import AppShell from '$lib/components/AppShell.svelte';
+    import NavBar from '$lib/components/NavBar.svelte';
     import { onMount } from 'svelte';
 
     let { data } = $props();
@@ -122,10 +123,7 @@
 </svelte:head>
 
 <AppShell showSidebar={true} userEmail={data.userEmail} userRole={userRole}>
-  <div class="page-header">
-    <h1>Complaints Dashboard</h1>
-    <p class="page-subtitle">Manage and track security complaints</p>
-  </div>
+  <NavBar title="Complaints" />
 
   <div class="controls-row">
     <div class="search-wrap">

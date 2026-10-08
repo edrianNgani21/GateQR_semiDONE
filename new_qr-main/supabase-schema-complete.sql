@@ -37,6 +37,7 @@
 -- ============================================================
 
 
+DROP TABLE IF EXISTS application_form_settings CASCADE;
 DROP TABLE IF EXISTS notifications CASCADE;
 DROP TABLE IF EXISTS change_vehicle_requests CASCADE;
 DROP TABLE IF EXISTS otp_codes CASCADE;
@@ -51,6 +52,7 @@ DROP TABLE IF EXISTS user_log CASCADE;
 DROP TABLE IF EXISTS system_settings CASCADE;
 DROP TABLE IF EXISTS department CASCADE;
 DROP TABLE IF EXISTS "user" CASCADE;
+DROP TABLE IF EXISTS campus_events CASCADE;
 
 
 
@@ -202,8 +204,15 @@ CREATE TYPE complaint_status_enum AS ENUM (
 
 CREATE TYPE vehicle_change_status_enum AS ENUM (
     'Pending',
+    'pending',
     'Approved',
-    'Rejected'
+    'approved',
+    'Rejected',
+    'rejected',
+    'completed',
+    'Completed',
+    'in_progress',
+    'scheduled'
 );
 
 
@@ -592,6 +601,11 @@ CREATE TABLE vehicle_log (
         DEFAULT 'Inside',
 
 
+    campus VARCHAR(50)
+        NOT NULL
+        DEFAULT 'Main',
+
+
     created_at TIMESTAMPTZ
         NOT NULL
         DEFAULT NOW(),
@@ -621,8 +635,7 @@ CREATE TABLE parking_availability (
     parking_availability_id SERIAL PRIMARY KEY,
 
 
-    vehicle_log_id INTEGER
-        NOT NULL,
+    vehicle_log_id INTEGER,
 
 
     parking_capacity INTEGER
@@ -859,16 +872,7 @@ CREATE TABLE change_vehicle_requests (
         NOT NULL,
 
 
-    new_vehicle_make VARCHAR(50),
-
-
-    new_vehicle_plate VARCHAR(20),
-
-
-    new_vehicle_type vehicle_type_enum,
-
-
-    new_is_owner BOOLEAN,
+    new_vehicle_id INTEGER,
 
 
     status vehicle_change_status_enum
@@ -876,7 +880,8 @@ CREATE TABLE change_vehicle_requests (
         DEFAULT 'Pending',
 
 
-    reason TEXT,
+    reason TEXT
+        NOT NULL,
 
 
     requested_at TIMESTAMPTZ
@@ -906,6 +911,12 @@ CREATE TABLE change_vehicle_requests (
         FOREIGN KEY (original_vehicle_id)
         REFERENCES vehicle_information(vehicle_information_id)
         ON DELETE RESTRICT,
+
+
+    CONSTRAINT fk_change_vehicle_new
+        FOREIGN KEY (new_vehicle_id)
+        REFERENCES vehicle_information(vehicle_information_id)
+        ON DELETE SET NULL,
 
 
     CONSTRAINT fk_change_vehicle_processed_by
@@ -1072,6 +1083,10 @@ ON change_vehicle_requests(registration_id);
 
 CREATE INDEX idx_change_vehicle_original
 ON change_vehicle_requests(original_vehicle_id);
+
+
+CREATE INDEX idx_change_vehicle_new
+ON change_vehicle_requests(new_vehicle_id);
 
 
 
@@ -1392,15 +1407,48 @@ DO UPDATE SET
 
 
 -- ============================================================
--- 39. DEFAULT SYSTEM SETTINGS (REMOVED)
+-- 39. APPLICATION FORM SETTINGS TABLE
 -- ============================================================
--- system_settings table removed. Settings now in parking_availability.
+-- Stores configuration for the application form (e.g. open/closed status)
+-- and references the admin user who last modified it.
+-- ============================================================
+
+
+CREATE TABLE application_form_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_by INTEGER REFERENCES "user"(user_id) ON DELETE SET NULL,
+    updated_by_email VARCHAR(255) REFERENCES "user"(email) ON DELETE SET NULL
+);
+
+INSERT INTO application_form_settings (key, value)
+VALUES ('application_form_open', 'true')
+ON CONFLICT (key) DO NOTHING;
 
 
 
 
+-- ============================================================
+-- CAMPUS CAPACITY & PARKING UPDATE
+-- ============================================================
+-- Note: Assuming `parking_availability` table exists.
+ALTER TABLE parking_availability
+ALTER COLUMN vehicle_log_id DROP NOT NULL,
+ADD COLUMN campus VARCHAR(255) DEFAULT 'Main Campus',
+ADD COLUMN event_name VARCHAR(255);
 
+CREATE TABLE campus_events (
+    event_id SERIAL PRIMARY KEY,
+    campus VARCHAR(255) NOT NULL,
+    event_name VARCHAR(255) NOT NULL,
+    start_date TIMESTAMPTZ NOT NULL,
+    end_date TIMESTAMPTZ NOT NULL,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
 
 -- ============================================================
 -- END OF COMPLETE GATEQR DATABASE SCHEMA
 -- ============================================================
+

@@ -2,16 +2,18 @@
   let {
     tabs,
     active,
+    counts = [],
     onchange
   }: {
     tabs: string[];
     active: string;
+    counts?: number[];
     onchange: (tab: string) => void;
   } = $props();
 </script>
 
 <div class="tab-bar" role="tablist">
-  {#each tabs as tab}
+  {#each tabs as tab, i}
     <button
       role="tab"
       aria-selected={active === tab}
@@ -20,11 +22,32 @@
       onclick={() => onchange(tab)}
     >
       {tab}
+      {#if counts[i] > 0}
+        <span class="tab-count">{counts[i]}</span>
+      {/if}
     </button>
   {/each}
 </div>
 
 <style>
+  .tab-count {
+    display: inline-block;
+    min-width: 1.25rem;
+    margin-left: 0.35rem;
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    background: var(--maroon);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    line-height: 1.3;
+    text-align: center;
+  }
+
+  .tab-active .tab-count {
+    background: #fff;
+    color: var(--maroon);
+  }
   .tab-bar {
     display: flex;
     gap: 0.375rem;
@@ -36,7 +59,7 @@
   }
 
   .tab-btn {
-    flex: 1;
+    flex: 1 1 auto;
     min-width: 80px;
     padding: 0.5rem 0.75rem;
     font-size: 0.8rem;
@@ -50,7 +73,10 @@
     transition: background 0.18s, color 0.18s, box-shadow 0.18s;
     text-transform: capitalize;
     letter-spacing: 0.01em;
-    white-space: nowrap;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
   }
 
   .tab-btn:hover:not(.tab-active) {

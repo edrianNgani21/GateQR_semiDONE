@@ -16,6 +16,8 @@ export const GET: RequestHandler = async ({ request, url, locals }) => {
     const boundFilter= url.searchParams.get('bound') || 'all';   // all | in | out
     const page       = Math.max(1, parseInt(url.searchParams.get('page') || '1'));
     const limit      = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '25')));
+    const rolesFilter= url.searchParams.get('roles')?.split(',').filter(Boolean) || [];
+    const campusFilter= url.searchParams.get('campus');
 
     try {
         let dateFilter = new Date().toISOString().split('T')[0];
@@ -33,17 +35,36 @@ export const GET: RequestHandler = async ({ request, url, locals }) => {
             .from('vehicle_log')
             .select(`
                 vehicle_log_id,
-                vehicle_information_id,
-                registration_id,
+                vehicle_information:vehicle_information_id(plate_number),
+                registration:registration_id(first_name, last_name, role, campus),
                 check_in,
                 check_out,
                 logged_status,
+                campus,
                 created_at
             `)
             .gte('check_in', dateFilter)
             .lt('check_in', tomorrow);
 
-        const { data } = await query;
+        let { data, error } = await query;
+        if ((!data || data.length === 0) && !error) {
+            const { data: createdData } = await supabase
+                .from('vehicle_log')
+                .select(`
+                    vehicle_log_id,
+                    vehicle_information:vehicle_information_id(plate_number),
+                    registration:registration_id(first_name, last_name, role, campus),
+                    check_in,
+                    check_out,
+                    logged_status,
+                    campus,
+                    created_at
+                `)
+                .gte('created_at', dateFilter)
+                .lt('created_at', tomorrow);
+            if (createdData) data = createdData;
+        }
+
         if (data) {
             regRows = data.map(row => ({
                 ...row,
@@ -59,17 +80,42 @@ export const GET: RequestHandler = async ({ request, url, locals }) => {
         const logs: any[] = [];
 
         regRows.forEach(row => {
-            const inDate = new Date(row.check_in);
+            const inDate = new Date(row.check_in || row.created_at || Date.now());
             const hasCheckout = row.check_out !== null;
             
+            const role = row.registration?.role || 'visitor';
+            const campus = row.campus || row.registration?.campus || '';
+
+            // Normalize campus names so "Main", "Main Campus" and "Liceo Main" all match
+            const normCampus = (c: string) => {
+                const v = (c || '').toLowerCase().trim();
+                if (v.includes('rnp')) return 'rnp';
+                if (v.includes('paseo')) return 'paseo';
+                if (v.includes('main') || v.includes('liceo')) return 'main';
+                return v;
+            };
+
+            if (rolesFilter.length > 0 && !rolesFilter.includes(role)) return;
+            if (campusFilter && campusFilter !== 'all' && campusFilter !== '') {
+                if (normCampus(campus) !== normCampus(campusFilter)) return;
+            }
+
+            let displayCampus = campus;
+            if (normCampus(campus) === 'rnp') displayCampus = 'RNP';
+            else if (normCampus(campus) === 'paseo') displayCampus = 'PASEO';
+            else if (normCampus(campus) === 'main') displayCampus = 'Main Campus';
+
             // Apply bound filter
             if (boundFilter === 'all' || 
                 (boundFilter === 'in' && !hasCheckout) || 
                 (boundFilter === 'out' && hasCheckout)) {
                 logs.push({
                     vehicle_log_id: row.vehicle_log_id,
-                    vehicle_information_id: row.vehicle_information_id,
-                    registration_id: row.registration_id,
+                    plate: row.vehicle_information?.plate_number || 'No Plate',
+                    driver_name: `${row.registration?.first_name || ''} ${row.registration?.last_name || ''}`.trim() || 'Guest',
+                    role: role,
+                    campus: displayCampus || 'Main Campus',
+                    bound: hasCheckout ? 'out' : 'in',
                     check_in: row.check_in,
                     check_out: row.check_out,
                     logged_status: row.logged_status,
@@ -91,9 +137,11 @@ export const GET: RequestHandler = async ({ request, url, locals }) => {
             filtered = logs.filter(l => {
                 const searchableFields = [
                     String(l.vehicle_log_id),
-                    String(l.registration_id),
-                    String(l.vehicle_information_id),
-                    String(l.logged_status)
+                    String(l.plate),
+                    String(l.driver_name),
+                    String(l.role),
+                    String(l.logged_status),
+                    String(l.campus)
                 ].join(' ').toLowerCase();
                 return terms.every(term => searchableFields.includes(term));
             });

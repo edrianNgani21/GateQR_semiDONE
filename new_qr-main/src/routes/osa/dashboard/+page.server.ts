@@ -1,6 +1,7 @@
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { supabase } from '$lib/server/supabase';
+import { getApplicationFormStatus } from '$lib/server/applicationForm';
 
 export const load: PageServerLoad = async ({ locals }) => {
     if (!locals.user || locals.user.role !== 'osa') {
@@ -9,16 +10,20 @@ export const load: PageServerLoad = async ({ locals }) => {
 
     const today = new Date().toISOString().split('T')[0];
     const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    const formStatus = await getApplicationFormStatus();
 
     try {
-        // OSA-specific statistics with safer queries
-        const totalApplicationsResult = await supabase.from('registration').select('*', { count: 'exact', head: true });
-        const pendingValidationResult = await supabase.from('registration').select('*', { count: 'exact', head: true }).eq('status', 'pending');
-        const pendingDistributionResult = await supabase.from('registration').select('*', { count: 'exact', head: true }).eq('status', 'dept_val');
-        const completedTodayResult = await supabase.from('registration').select('*', { count: 'exact', head: true })
+        // OSA-specific statistics mapped as requested
+        const totalApplicationsResult = await supabase.from('registration').select('*', { count: 'exact', head: true }).in('status', ['pending', 'dept_val', 'osa_val']);
+        const pendingValidationResult = await supabase.from('registration').select('*', { count: 'exact', head: true })
             .eq('status', 'distributed')
-            .gte('osa_dist_at', today)
-            .lt('osa_dist_at', tomorrow);
+            .is('security_checked_at', null);
+        const pendingDistributionResult = await supabase.from('registration').select('*', { count: 'exact', head: true })
+            .eq('status', 'distributed')
+            .not('security_checked_at', 'is', null)
+            .is('sticker_released_at', null);
+        const completedTodayResult = await supabase.from('registration').select('*', { count: 'exact', head: true })
+            .eq('status', 'completed');
         const rejectedTodayResult = await supabase.from('registration').select('*', { count: 'exact', head: true })
             .eq('status', 'rejected')
             .gte('rejected_at', today)
@@ -75,7 +80,10 @@ export const load: PageServerLoad = async ({ locals }) => {
                 totalDepartments
             },
             statusBreakdown: statusCounts,
-            recentApplications: recentApplications || []
+            recentApplications: recentApplications || [],
+            applicationOpen: formStatus.open,
+            formStatus,
+            userEmail: locals.user.email
         };
     } catch (e) {
         console.error('Failed to load OSA dashboard data:', e);
@@ -97,7 +105,10 @@ export const load: PageServerLoad = async ({ locals }) => {
                 rejected: 0,
                 revoked: 0
             },
-            recentApplications: []
+            recentApplications: [],
+            applicationOpen: formStatus.open,
+            formStatus,
+            userEmail: locals.user.email
         };
     }
 };

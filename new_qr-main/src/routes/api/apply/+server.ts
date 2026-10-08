@@ -1,13 +1,17 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { supabase } from '$lib/server/supabase';
-import { writeFileSync } from 'fs';
-import { join } from 'path';
+import { uploadToStorage } from '$lib/server/storage';
 import { sendEmail } from '$lib/server/email';
+import { isApplicationFormOpen } from '$lib/server/applicationForm';
 
 export const POST: RequestHandler = async ({ request, locals }) => {
     if (!locals.user) {
         return json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    if (!(await isApplicationFormOpen())) {
+        return json({ error: 'The application form is currently closed.' }, { status: 403 });
     }
 
     try {
@@ -28,14 +32,23 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         const campus = formData.get('campus') as string || 'Liceo Main';
         const year_level = formData.get('year_level') as string || null;
 
+        const docKeys = ['doc_or', 'doc_cr', 'doc_license', 'doc_id', 'doc_load', 'doc_letter'];
+        for (const key of docKeys) {
+            const file = formData.get(key) as File | null;
+            if (file && file.size > 0) {
+                const isPdf = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf';
+                if (!isPdf) {
+                    return json({ error: 'Only PDF documents are allowed. (Document allows PDF and Scanned)' }, { status: 400 });
+                }
+            }
+        }
+
         const saveFile = async (fileKey: string) => {
             const file = formData.get(fileKey) as File | null;
             if (!file || file.size === 0) return null;
             const buffer = Buffer.from(await file.arrayBuffer());
-            const filename = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-            const filepath = join(process.cwd(), 'static', 'uploads', filename);
-            writeFileSync(filepath, buffer);
-            return `/uploads/${filename}`;
+            const filename = `documents/${Date.now()}-${Math.random().toString(36).substring(2, 9)}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+            return await uploadToStorage(filename, buffer, file.type || 'application/pdf');
         };
 
         const doc_or = await saveFile('doc_or');

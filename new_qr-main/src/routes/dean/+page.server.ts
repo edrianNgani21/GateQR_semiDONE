@@ -72,7 +72,8 @@ export const load: PageServerLoad = async ({ locals }) => {
                     plate_number,
                     brand,
                     color,
-                    type
+                    type,
+                    qr_code
                 )
             `)
             .eq('department_id', departmentIdForQuery)
@@ -96,7 +97,8 @@ export const load: PageServerLoad = async ({ locals }) => {
             vehicle_color: app.vehicle_information?.color || '-',
             vehicle_plate: app.vehicle_information?.plate_number || '-',
             vehicle_type: app.vehicle_information?.type || '-',
-            qr_code: app.qr_code || null,
+            qr_code: app.qr_code || app.vehicle_information?.qr_code || null,
+            qr_unique_code: app.qr_unique_code || app.vehicle_information?.qr_unique_code || null,
             created_at: typeof app.created_at === 'string' ? app.created_at : app.created_at?.toISOString(),
             dept_val_at: typeof app.dept_val_at === 'string' ? app.dept_val_at : app.dept_val_at?.toISOString(),
             osa_val_at: typeof app.osa_val_at === 'string' ? app.osa_val_at : app.osa_val_at?.toISOString(),

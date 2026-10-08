@@ -3,9 +3,9 @@ import type { RequestHandler } from './$types';
 import { supabase } from '$lib/server/supabase';
 import QRCode from 'qrcode';
 import { join } from 'path';
-import fs from 'fs';
 import { sendEmail } from '$lib/server/email';
-import { generateStyledQR } from '$lib/server/qr';
+import { generateStyledQR, generateStyledQRBuffer } from '$lib/server/qr';
+import { uploadToStorage, deleteFromStorage } from '$lib/server/storage';
 
 async function createNotification(
     userId: number,
@@ -112,11 +112,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             // Generate QR code with unique alphanumeric string
             const uniqueCode = generateUniqueCode(8);
             const qrData = uniqueCode;
-            const filename = `qr-${registration_id}-${Date.now()}.png`;
-            const filepath = join(process.cwd(), 'static', 'uploads', filename);
-
-            await generateStyledQR(qrData, reg.role, filepath);
-            const qrUrl = `/uploads/${filename}`;
+            const filename = `qr-codes/qr-${registration_id}-${Date.now()}.png`;
+            const qrBuffer = await generateStyledQRBuffer(qrData, reg.role);
+            const qrUrl = await uploadToStorage(filename, qrBuffer, 'image/png');
 
             const expiryMonths = parseInt(process.env.QR_EXPIRY_MONTHS || '6', 10);
             const expiresAt = new Date(new Date(reg.created_at).getTime() + expiryMonths * 30 * 24 * 60 * 60 * 1000);
@@ -226,35 +224,101 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             }
         }
         else if (action === 'release_sticker' && reg.status === 'distributed') {
+            // Check if this application was undergoing a Request to Change Registration Details
+            const { data: changeReq } = await supabase
+                .from('change_vehicle_requests')
+                .select('*')
+                .eq('registration_id', registration_id)
+                .in('status', ['approved', 'Approved', 'in_progress', 'scheduled'])
+                .order('requested_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            const isChangeRequest = !!changeReq;
+            const nowIso = new Date().toISOString();
+
+            const updateData: any = {
+                sticker_released_at: nowIso,
+                status: 'completed'
+            };
+
+            // If it underwent Request to Change, it directly goes to Registered
+            if (isChangeRequest) {
+                updateData.sticker_installed_at = nowIso;
+                if (changeReq.new_vehicle_id) {
+                    updateData.vehicle_information_id = changeReq.new_vehicle_id;
+                }
+            }
+
             const { error: updateError } = await supabase
                 .from('registration')
-                .update({ 
-                    sticker_released_at: new Date().toISOString(),
-                    status: 'completed'
-                })
+                .update(updateData)
                 .eq('registration_id', registration_id);
 
             if (updateError) throw updateError;
 
-            await sendEmail(
-                reg.user.email,
-                'Sticker Released - Liceo GateQR',
-                'Your vehicle sticker has been released by OSA. Please proceed to Safety and Security for sticker installation.',
-                '<p>Your vehicle sticker has been <strong>released by OSA</strong>. Please proceed to Safety and Security for sticker installation.</p>'
-            );
+            // If change request, update the vehicle info and mark change request as completed
+            if (isChangeRequest) {
+                if (!changeReq.new_vehicle_id && changeReq.new_vehicle_plate) {
+                    const currentVehId = reg.vehicle_information_id;
+                    if (currentVehId) {
+                        await supabase
+                            .from('vehicle_information')
+                            .update({
+                                plate_number: changeReq.new_vehicle_plate,
+                                brand: changeReq.new_vehicle_make || undefined,
+                                type: changeReq.new_vehicle_type || undefined
+                            })
+                            .eq('vehicle_information_id', currentVehId);
+                    }
+                }
 
-            if (reg.user?.user_id) {
-                const actorId = locals.user?.user_id;
-                await createNotification(
-                    reg.user.user_id,
-                    'sticker_released',
-                    'Your vehicle sticker has been released by OSA. Proceed to Safety and Security for installation.',
-                    actorId,
-                    'release_sticker',
-                    'registration',
-                    registration_id,
-                    registration_id
+                await supabase
+                    .from('change_vehicle_requests')
+                    .update({ status: 'completed' })
+                    .eq('request_id', changeReq.request_id);
+
+                await sendEmail(
+                    reg.user.email,
+                    'Registration Change Completed — Liceo GateQR',
+                    'Your vehicle sticker has been released by OSA and your registration change has been finalized. Your vehicle is now officially registered.',
+                    '<h3>Registration Change Completed</h3><p>Your vehicle sticker has been released by OSA and your registration change has been finalized.</p><p>Your updated vehicle is now officially registered with GateQR.</p>'
                 );
+
+                if (reg.user?.user_id) {
+                    const actorId = locals.user?.user_id;
+                    await createNotification(
+                        reg.user.user_id,
+                        'registration_change_completed',
+                        'Your vehicle sticker was released and your registration change is now completed and registered!',
+                        actorId,
+                        'release_sticker',
+                        'registration',
+                        registration_id,
+                        registration_id
+                    );
+                }
+            } else {
+                await sendEmail(
+                    reg.user.email,
+                    'Sticker Released - Liceo GateQR',
+                    'Your vehicle sticker has been released by OSA. Please proceed to Safety and Security for sticker installation.',
+                    '<p>Your vehicle sticker has been <strong>released by OSA</strong>. Please proceed to Safety and Security for sticker installation.</p>'
+                );
+
+                if (reg.user?.user_id) {
+                    const actorId = locals.user?.user_id;
+                    await createNotification(
+                        reg.user.user_id,
+                        'sticker_released',
+                        'Your vehicle sticker has been released by OSA. Proceed to Safety and Security for installation.',
+                        actorId,
+                        'release_sticker',
+                        'registration',
+                        registration_id,
+                        registration_id
+                    );
+                }
             }
         }
         else if (action === 'reschedule' && reg.status === 'distributed') {
@@ -466,13 +530,17 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         else if (action === 'delete') {
             const files = [reg.doc_id, reg.doc_load, reg.doc_or, reg.doc_cr, reg.doc_license, reg.doc_letter, reg.qr_code].filter(Boolean);
             for (const file of files) {
-                const filepath = join(process.cwd(), 'static', file);
-                try {
-                    if (fs.existsSync(filepath)) {
-                        fs.unlinkSync(filepath);
+                if (file.startsWith('http://') || file.startsWith('https://')) {
+                    await deleteFromStorage(file);
+                } else {
+                    const filepath = join(process.cwd(), 'static', file);
+                    try {
+                        if (fs.existsSync(filepath)) {
+                            fs.unlinkSync(filepath);
+                        }
+                    } catch (e) {
+                        console.error('Failed to delete file', filepath, e);
                     }
-                } catch (e) {
-                    console.error('Failed to delete file', filepath, e);
                 }
             }
             

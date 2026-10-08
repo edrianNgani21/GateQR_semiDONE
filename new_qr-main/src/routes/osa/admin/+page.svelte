@@ -2,6 +2,8 @@
     import AppShell from '$lib/components/AppShell.svelte';
     import NavBar from '$lib/components/NavBar.svelte';
 
+    let { data } = $props();
+
     const navLinks = [
         { label: 'Applications', href: '/osa' },
         { label: 'Add Admin', href: '/osa/admin' },
@@ -135,24 +137,10 @@
     }
 </script>
 
-<AppShell showSidebar={true}>
-    <NavBar title="Add Admin" links={navLinks} />
+<AppShell userEmail={data.userEmail} showSidebar={true}>
+    <NavBar title="Add Admin" />
     
     <div class="admin-container">
-        <div class="page-header">
-            <div class="header-content">
-                <h1>Add Admin</h1>
-                <p class="header-subtitle">Create new admin accounts for OSA, Security, or Dean roles</p>
-            </div>
-            <div class="header-icon">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                    <circle cx="9" cy="7" r="4"/>
-                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                </svg>
-            </div>
-        </div>
 
         {#if success}
             <div class="alert alert-success">

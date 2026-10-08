@@ -43,9 +43,49 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             })
             .eq('registration_id', registration_id);
 
-        if (updateError) {
-            console.error('Failed to update sticker installation:', updateError);
-            return json({ error: 'Failed to mark sticker as installed' }, { status: 500 });
+        // If this application was undergoing a change vehicle request, finalize it
+        try {
+            const { data: changeReq } = await supabase
+                .from('change_vehicle_requests')
+                .select('*')
+                .eq('registration_id', registration_id)
+                .in('status', ['approved', 'Approved', 'in_progress'])
+                .order('requested_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+            if (changeReq) {
+                if (changeReq.new_vehicle_id) {
+                    await supabase
+                        .from('registration')
+                        .update({ vehicle_information_id: changeReq.new_vehicle_id })
+                        .eq('registration_id', registration_id);
+                } else if (changeReq.new_vehicle_plate) {
+                    // Update existing vehicle_information if no separate record
+                    const { data: currentReg } = await supabase
+                        .from('registration')
+                        .select('vehicle_information_id')
+                        .eq('registration_id', registration_id)
+                        .single();
+                    if (currentReg?.vehicle_information_id) {
+                        await supabase
+                            .from('vehicle_information')
+                            .update({
+                                plate_number: changeReq.new_vehicle_plate,
+                                brand: changeReq.new_vehicle_make || undefined,
+                                type: changeReq.new_vehicle_type || undefined
+                            })
+                            .eq('vehicle_information_id', currentReg.vehicle_information_id);
+                    }
+                }
+
+                await supabase
+                    .from('change_vehicle_requests')
+                    .update({ status: 'completed' })
+                    .eq('request_id', changeReq.request_id);
+            }
+        } catch (cvErr) {
+            console.error('Error finalizing change vehicle request:', cvErr);
         }
 
         return json({ message: 'Sticker marked as installed. Registration completed.' });

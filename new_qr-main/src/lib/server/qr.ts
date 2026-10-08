@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import { join } from 'path';
 import fs from 'fs';
 
-export async function generateStyledQR(qrData: string, role: string = 'student', filepath: string): Promise<void> {
+export async function generateStyledQRBuffer(qrData: string, role: string = 'student'): Promise<Buffer> {
     const qrSize = 400;
     const borderPadding = 20;
     const totalSize = qrSize + borderPadding * 2;
@@ -62,7 +62,10 @@ export async function generateStyledQR(qrData: string, role: string = 'student',
         ctx.drawImage(logo, logoX, logoY, logoDrawSize, logoDrawSize);
     }
 
-    // 5. Write canvas to file
-    const buffer = canvas.toBuffer('image/png');
+    return canvas.toBuffer('image/png');
+}
+
+export async function generateStyledQR(qrData: string, role: string = 'student', filepath: string): Promise<void> {
+    const buffer = await generateStyledQRBuffer(qrData, role);
     fs.writeFileSync(filepath, buffer);
 }

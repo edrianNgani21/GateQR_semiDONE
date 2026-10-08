@@ -184,36 +184,83 @@ def img_to_b64(img):
 
 is_connected = True
 
+class _EmptyResponse:
+    data = []
+
+def get_latest_parking_row():
+    """Latest parking_availability row for the campus selected at boot.
+    'Main' matches 'Main Campus', 'Rnp' matches 'RNP', 'Paseo' matches 'PASEO'."""
+    campus = globals().get('SELECTED_CAMPUS')
+    if not campus:
+        return _EmptyResponse()  # campus not chosen yet (boot screen)
+    
+    norm_campus = 'Main Campus'
+    if 'rnp' in str(campus).lower():
+        norm_campus = 'RNP'
+    elif 'paseo' in str(campus).lower():
+        norm_campus = 'PASEO'
+        
+    return supabase.table('parking_availability').select('*').ilike('campus', f"%{norm_campus}%").order('date_time', desc=True).limit(1).execute()
+
+def update_parking_availability(action, vehicle_log_id=None):
+    """Update parking_availability table in Supabase when vehicle enters or exits"""
+    try:
+        campus = globals().get('SELECTED_CAMPUS', 'Main')
+        norm_campus = 'Main Campus'
+        if 'rnp' in str(campus).lower():
+            norm_campus = 'RNP'
+        elif 'paseo' in str(campus).lower():
+            norm_campus = 'PASEO'
+
+        # Get latest settings for this campus
+        pa_res = supabase.table('parking_availability').select('*').ilike('campus', f"%{norm_campus}%").order('date_time', desc=True).limit(1).execute()
+        capacity = 500
+        # Directly count live active entries in vehicle_log for this campus (entries without check_out)
+        try:
+            active_res = supabase.table('vehicle_log').select('vehicle_log_id').ilike('campus', f"%{campus}%").is_('check_out', 'null').execute()
+            new_occupied = len(active_res.data) if active_res.data else 0
+        except Exception as e:
+            print(f"DEBUG: Error counting live entries: {e}")
+            new_occupied = 0
+
+        new_unoccupied = max(0, capacity - new_occupied)
+
+        # Get a valid vehicle_log_id if not provided
+        if not vehicle_log_id:
+            try:
+                vl = supabase.table('vehicle_log').select('vehicle_log_id').order('vehicle_log_id', desc=True).limit(1).execute()
+                if vl.data:
+                    vehicle_log_id = vl.data[0]['vehicle_log_id']
+            except:
+                pass
+
+        supabase.table('parking_availability').insert({
+            "vehicle_log_id": vehicle_log_id,
+            "campus": norm_campus,
+            "parking_capacity": capacity,
+            "slot_occupied": new_occupied,
+            "slot_unoccupied": new_unoccupied,
+            "date_time": datetime.now().isoformat()
+        }).execute()
+
+        refresh_parking_data()
+        print(f"DEBUG: Parking availability updated ({norm_campus}) -> Occupied: {new_occupied}, Available: {new_unoccupied}")
+    except Exception as e:
+        print(f"DEBUG: Error updating parking availability: {e}")
+
 def refresh_parking_data():
     """Manually refresh parking availability data from database"""
     global global_stats
     try:
-        # Fetch parking availability data for real-time capacity
-        try:
-            parking_response = supabase.table('parking_availability').select('*').order('date_time', desc=True).limit(1).execute()
-            if parking_response.data:
-                parking_data = parking_response.data[0]
-                global_stats['maxCapacity'] = parking_data.get('parking_capacity', -1)
-                global_stats['currentlyIn'] = parking_data.get('slot_occupied', 0)
-                global_stats['availableSlots'] = parking_data.get('slot_unoccupied', 0)
-                print("Parking data refreshed successfully")
-            else:
-                # Fallback to system_settings if parking_availability is empty
-                settings_response = supabase.table('system_settings').select('*').limit(1).execute()
-                if settings_response.data:
-                    settings = settings_response.data[0]
-                    global_stats['maxCapacity'] = settings.get('max_capacity', -1)
-                print("Parking data refreshed (fallback to system_settings)")
-        except Exception as e:
-            print(f"Error refreshing parking availability: {e}")
-            # Fallback to system_settings on error
-            try:
-                settings_response = supabase.table('system_settings').select('*').limit(1).execute()
-                if settings_response.data:
-                    settings = settings_response.data[0]
-                    global_stats['maxCapacity'] = settings.get('max_capacity', -1)
-            except Exception as fallback_error:
-                print(f"Error refreshing system settings fallback: {fallback_error}")
+        parking_response = get_latest_parking_row()
+        if parking_response.data:
+            parking_data = parking_response.data[0]
+            global_stats['maxCapacity'] = parking_data.get('parking_capacity', -1)
+            global_stats['currentlyIn'] = parking_data.get('slot_occupied', 0)
+            global_stats['availableSlots'] = parking_data.get('slot_unoccupied', 0)
+            print(f"Parking data refreshed: Occupied={global_stats['currentlyIn']}, Available={global_stats['availableSlots']}")
+        else:
+            print("Parking data refreshed (no parking_availability rows yet)")
     except Exception as e:
         print(f"Error in refresh_parking_data: {e}")
 
@@ -221,31 +268,16 @@ def poll_supabase():
     global global_stats, global_logs, is_connected
     while True:
         try:
-            # Fetch parking availability data for real-time capacity
             try:
-                parking_response = supabase.table('parking_availability').select('*').order('date_time', desc=True).limit(1).execute()
+                parking_response = get_latest_parking_row()
                 if parking_response.data:
                     parking_data = parking_response.data[0]
                     global_stats['maxCapacity'] = parking_data.get('parking_capacity', -1)
                     global_stats['currentlyIn'] = parking_data.get('slot_occupied', 0)
                     global_stats['availableSlots'] = parking_data.get('slot_unoccupied', 0)
-                else:
-                    # Fallback to system_settings if parking_availability is empty
-                    settings_response = supabase.table('system_settings').select('*').limit(1).execute()
-                    if settings_response.data:
-                        settings = settings_response.data[0]
-                        global_stats['maxCapacity'] = settings.get('max_capacity', -1)
             except Exception as e:
                 print(f"Error fetching parking availability: {e}")
-                # Fallback to system_settings on error
-                try:
-                    settings_response = supabase.table('system_settings').select('*').limit(1).execute()
-                    if settings_response.data:
-                        settings = settings_response.data[0]
-                        global_stats['maxCapacity'] = settings.get('max_capacity', -1)
-                except Exception as fallback_error:
-                    print(f"Error fetching system settings fallback: {fallback_error}")
-            
+
             if not is_connected:
                 print("Supabase Polling: Connection restored!")
                 is_connected = True
@@ -382,9 +414,32 @@ def process_qr(side, qr_text, frame):
                 print(f"Error fetching vehicle information: {e}")
                 side.vehicle_data = {}
             
+            # --- Cross-campus check: same QR still recorded as ENTRY (no exit) at ANOTHER campus ---
+            try:
+                open_res = supabase.table('vehicle_log').select('*').eq('registration_id', reg['registration_id']).is_('check_out', 'null').order('created_at', desc=True).execute()
+                for open_row in (open_res.data or []):
+                    # Guest/VIP logs use a placeholder registration, so they are not this vehicle
+                    if str(open_row.get('logged_status') or '').upper() in ('GUEST', 'VIP'):
+                        continue
+                    other_campus = str(open_row.get('campus') or '')
+                    if SELECTED_CAMPUS.lower() not in other_campus.lower():
+                        since = open_row.get('check_in') or ''
+                        try:
+                            since = datetime.fromisoformat(since.replace('Z', '+00:00')).strftime('%H:%M')
+                        except:
+                            pass
+                        side.logged_status = "REGISTERED"
+                        side.anomaly_desc = f"FLAGGED: QR still INSIDE {other_campus} since {since}"
+                        side.anomaly_id = open_row.get('vehicle_log_id')
+                        print(f"DEBUG: FLAG - QR still recorded as entry at {other_campus} (vehicle_log #{side.anomaly_id})")
+                        side.state = GateState.LOG_WARNING
+                        return
+            except Exception as e:
+                print(f"DEBUG: Cross-campus check error: {e}")
+
             # Get last log for this registration using correct column names
             try:
-                last_log_response = supabase.table('vehicle_log').select('*').eq('registration_id', reg['registration_id']).order('created_at', desc=True).limit(1).execute()
+                last_log_response = supabase.table('vehicle_log').select('*').eq('registration_id', reg['registration_id']).eq('campus', SELECTED_CAMPUS).order('created_at', desc=True).limit(1).execute()
                 last_log = last_log_response.data[0] if last_log_response.data else None
             except:
                 last_log = None
@@ -465,70 +520,66 @@ def submit_entry_exit(side):
         current_time = datetime.now().isoformat()
         
         try:
-            # For exit gate, we need to find the entry log first to get the check_in time
-            # since the database requires check_in to be NOT NULL
+            vehicle_log_id = None
             if side.type == 'out':
+                # Try to find and close the existing open entry log for this registration
                 try:
-                    # Find the most recent entry log for this registration
-                    last_log_response = supabase.table('vehicle_log').select('*').eq('registration_id', side.data['registration_id']).order('created_at', desc=True).limit(1).execute()
-                    if last_log_response.data and last_log_response.data[0].get('check_in'):
-                        entry_check_in = last_log_response.data[0]['check_in']
-                        print(f"DEBUG: Found entry check_in time: {entry_check_in}")
-                    else:
-                        # Fallback: use current time for check_in if no entry found
-                        entry_check_in = current_time
-                        print(f"DEBUG: No entry found, using current time for check_in")
+                    open_log_res = supabase.table('vehicle_log').select('*')\
+                        .eq('registration_id', side.data['registration_id'])\
+                        .ilike('campus', f"%{SELECTED_CAMPUS}%")\
+                        .is_('check_out', 'null')\
+                        .order('created_at', desc=True)\
+                        .limit(1)\
+                        .execute()
+
+                    if open_log_res.data:
+                        open_log = open_log_res.data[0]
+                        vehicle_log_id = open_log['vehicle_log_id']
+                        supabase.table('vehicle_log').update({
+                            "check_out": current_time,
+                            "logged_status": getattr(side, 'logged_status', 'REGISTERED')
+                        }).eq('vehicle_log_id', vehicle_log_id).execute()
+                        print(f"DEBUG: Closed existing vehicle_log #{vehicle_log_id} on exit")
                 except Exception as e:
-                    print(f"DEBUG: Error finding entry log: {e}, using current time")
-                    entry_check_in = current_time
+                    print(f"DEBUG: Error finding/updating open entry log: {e}")
+
+                # Fallback: if no open entry log was found, insert a standalone exit record
+                if not vehicle_log_id:
+                    log_data = {
+                        "vehicle_information_id": side.data.get('vehicle_information_id') or 1,
+                        "registration_id": side.data['registration_id'],
+                        "check_in": current_time,
+                        "check_out": current_time,
+                        "logged_status": getattr(side, 'logged_status', 'REGISTERED'),
+                        "campus": SELECTED_CAMPUS
+                    }
+                    res = supabase.table('vehicle_log').insert(log_data).execute()
+                    vehicle_log_id = res.data[0]['vehicle_log_id'] if res.data else None
+                    print(f"DEBUG: Created standalone exit vehicle_log #{vehicle_log_id}")
+
+                # Update parking availability in DB and refresh stats
+                update_parking_availability('out', vehicle_log_id)
+
             else:
-                entry_check_in = current_time
-            
-            # Insert vehicle log into Supabase using correct column names
-            log_data = {
-                "vehicle_information_id": side.data.get('vehicle_information_id'),
-                "registration_id": side.data['registration_id'],
-                "check_in": entry_check_in,  # Always provide a value for check_in
-                "check_out": current_time if side.type == 'out' else None,
-                "logged_status": getattr(side, 'logged_status', None)
-            }
-            
-            print(f"DEBUG: Submitting {action} log with data: {log_data}")
-            
-            # Comprehensive null handling for all fields
-            null_fields = []
-            for key, value in log_data.items():
-                if value is None:
-                    null_fields.append(key)
-                    print(f"DEBUG: WARNING - Field '{key}' is None")
-            
-            if null_fields:
-                print(f"DEBUG: Null fields found: {null_fields}")
-                # Fix null values with defaults
-                if "vehicle_information_id" in null_fields:
-                    log_data["vehicle_information_id"] = 1
-                    print(f"DEBUG: Set vehicle_information_id to default 1")
-                if "logged_status" in null_fields:
-                    log_data["logged_status"] = "REGISTERED"
-                    print(f"DEBUG: Set logged_status to default 'REGISTERED'")
-                if "check_in" in null_fields:
-                    log_data["check_in"] = current_time
-                    print(f"DEBUG: Set check_in to current_time")
-            
-            print(f"DEBUG: Final log data after null handling: {log_data}")
-            
-            # Final check for any remaining null values, but allow check_out to be None for entry operations
-            remaining_nulls = [k for k, v in log_data.items() if v is None and k != 'check_out']
-            if remaining_nulls:
-                print(f"DEBUG: ERROR - Still have null fields: {remaining_nulls}")
-                raise Exception(f"Cannot submit log with null fields: {remaining_nulls}")
-            
-            supabase.table('vehicle_log').insert(log_data).execute()
-            print(f"DEBUG: {action} log submitted successfully")
-            
-            # For exit gate, open gate immediately with 15-second countdown
-            # For entry gate, also open with 15-second countdown
+                # ENTRY
+                log_data = {
+                    "vehicle_information_id": side.data.get('vehicle_information_id') or 1,
+                    "registration_id": side.data['registration_id'],
+                    "check_in": current_time,
+                    "check_out": None,
+                    "logged_status": getattr(side, 'logged_status', 'REGISTERED'),
+                    "campus": SELECTED_CAMPUS
+                }
+                res = supabase.table('vehicle_log').insert(log_data).execute()
+                vehicle_log_id = res.data[0]['vehicle_log_id'] if res.data else None
+                print(f"DEBUG: Created entry vehicle_log #{vehicle_log_id}")
+
+                # Update parking availability in DB and refresh stats
+                update_parking_availability('in', vehicle_log_id)
+
+            print(f"DEBUG: {action} log submitted and parking availability updated successfully")
             open_gate(side)
+
         except Exception as e:
             print(f"DEBUG: Error submitting {action} log: {type(e).__name__}: {e}")
             side.state = GateState.API_ERROR
@@ -536,16 +587,40 @@ def submit_entry_exit(side):
             
     threading.Thread(target=_run, daemon=True).start()
 
+_placeholder_ids = None
+
+def get_placeholder_ids():
+    """Find an existing registration row (registration_id, vehicle_information_id)
+    to attach VIP/guest logs to, since vehicle_log requires valid foreign keys."""
+    global _placeholder_ids
+    if _placeholder_ids:
+        return _placeholder_ids
+    try:
+        r = supabase.table('registration').select('registration_id, vehicle_information_id').order('registration_id').limit(1).execute()
+        if r.data:
+            _placeholder_ids = (r.data[0]['registration_id'], r.data[0]['vehicle_information_id'])
+            print(f"DEBUG: Using placeholder IDs for VIP/guest logs: {_placeholder_ids}")
+            return _placeholder_ids
+        print("DEBUG: No registration rows exist - cannot attach VIP/guest log")
+    except Exception as e:
+        print(f"DEBUG: Error finding placeholder IDs: {e}")
+    return None
+
 def submit_vip(side):
     side.state = GateState.PROCESSING
     def _run():
         current_time = datetime.now().isoformat()
         
         try:
+            ids = get_placeholder_ids()
+            if ids is None:
+                raise Exception("No registration row available to attach VIP log")
+            placeholder_reg_id, placeholder_vehicle_id = ids
+
             # For exit gate, find entry check_in time to avoid null constraint
             if side.type == 'out':
                 try:
-                    last_log_response = supabase.table('vehicle_log').select('*').eq('registration_id', 2).order('created_at', desc=True).limit(1).execute()
+                    last_log_response = supabase.table('vehicle_log').select('*').eq('registration_id', placeholder_reg_id).eq('campus', SELECTED_CAMPUS).order('created_at', desc=True).limit(1).execute()
                     if last_log_response.data and last_log_response.data[0].get('check_in'):
                         entry_check_in = last_log_response.data[0]['check_in']
                     else:
@@ -555,14 +630,13 @@ def submit_vip(side):
             else:
                 entry_check_in = current_time
             
-            # Use existing registration_id and vehicle_information_id for VIP access
-            # In production, you might want to create a specific VIP registration record
             log_data = {
-                "vehicle_information_id": 1,  # Use existing vehicle_information_id
-                "registration_id": 2,  # Use existing registration_id (from the registration we found)
-                "check_in": entry_check_in,  # Always provide a value for check_in
+                "vehicle_information_id": placeholder_vehicle_id,
+                "registration_id": placeholder_reg_id,
+                "check_in": entry_check_in,
                 "check_out": current_time if side.type == 'out' else None,
-                "logged_status": "VIP"
+                "logged_status": "VIP",
+                "campus": SELECTED_CAMPUS  # CAMPUS: tag log with the campus selected at boot
             }
             
             print(f"DEBUG: VIP log data: {log_data}")
@@ -570,7 +644,6 @@ def submit_vip(side):
             vehicle_log_result = supabase.table('vehicle_log').insert(log_data).execute()
             vehicle_log_id = vehicle_log_result.data[0]['vehicle_log_id'] if vehicle_log_result.data else None
             
-            # Then insert into vip_log table with proper structure
             vip_data = {
                 "vehicle_log_id": vehicle_log_id,
                 "name": "VIP Guest",
@@ -580,10 +653,12 @@ def submit_vip(side):
             }
             
             supabase.table('vip_log').insert(vip_data).execute()
-            open_gate(side)
+            update_parking_availability('in' if side.type == 'in' else 'out', vehicle_log_id)
         except Exception as e:
-            side.state = GateState.API_ERROR
-            side.api_error = f"VIP failed: {str(e)}"
+            # Logging failed, but the gate must still open for VIP access
+            print(f"DEBUG: VIP logging failed (opening gate anyway): {type(e).__name__}: {e}")
+        
+        open_gate(side)
 
     threading.Thread(target=_run, daemon=True).start()
 
@@ -600,29 +675,40 @@ def submit_manual_guest(side):
         
         try:
             if side.type == 'in':
-                # Insert vehicle log first using correct column names
-                log_data = {
-                    "vehicle_information_id": 1,  # Use existing vehicle_information_id for guests
-                    "registration_id": 2,  # Use existing registration_id for guests
-                    "check_in": current_time,
-                    "check_out": None,
-                    "logged_status": "GUEST"
-                }
+                vehicle_log_id = None
+                try:
+                    ids = get_placeholder_ids()
+                    if ids is None:
+                        raise Exception("No registration row available to attach guest log")
+                    placeholder_reg_id, placeholder_vehicle_id = ids
+
+                    log_data = {
+                        "vehicle_information_id": placeholder_vehicle_id,
+                        "registration_id": placeholder_reg_id,
+                        "check_in": current_time,
+                        "check_out": None,
+                        "logged_status": "GUEST",
+                        "campus": SELECTED_CAMPUS  # CAMPUS: tag log with the campus selected at boot
+                    }
+                    
+                    vehicle_log_result = supabase.table('vehicle_log').insert(log_data).execute()
+                    vehicle_log_id = vehicle_log_result.data[0]['vehicle_log_id'] if vehicle_log_result.data else None
+                    
+                    guest_data = {
+                        "vehicle_log_id": vehicle_log_id,
+                        "plate_number": side.form_data[0][:20],
+                        "id_number": side.form_data[1][:50],
+                        "purpose": side.form_data[2],
+                        "timestamp": current_time
+                    }
+                    
+                    supabase.table('guest_log').insert(guest_data).execute()
+                except Exception as e:
+                    # Logging failed, but the guest must still be let in
+                    print(f"DEBUG: Guest logging failed (opening gate anyway): {type(e).__name__}: {e}")
                 
-                vehicle_log_result = supabase.table('vehicle_log').insert(log_data).execute()
-                vehicle_log_id = vehicle_log_result.data[0]['vehicle_log_id'] if vehicle_log_result.data else None
-                
-                # Insert guest into guest_log table with correct structure
-                guest_data = {
-                    "vehicle_log_id": vehicle_log_id,
-                    "plate_number": side.form_data[0],
-                    "id_number": side.form_data[1],
-                    "purpose": side.form_data[2],
-                    "timestamp": current_time
-                }
-                
-                supabase.table('guest_log').insert(guest_data).execute()
-                
+                update_parking_availability('in', vehicle_log_id)
+
                 # Open gate automatically with 10 seconds delay (direct servo control)
                 servo = servo_in if side.type == 'in' else servo_out
                 set_servo_angle(servo, 90)
@@ -646,6 +732,8 @@ def submit_manual_guest(side):
                         print(f"DEBUG: Updating guest exit for vehicle_log_id: {vehicle_log_id}")
                         supabase.table('vehicle_log').update({"check_out": exit_time}).eq('vehicle_log_id', vehicle_log_id).execute()
                     
+                    update_parking_availability('out', vehicle_log_id)
+
                     # Open gate with 10 seconds delay (direct servo control)
                     servo = servo_in if side.type == 'in' else servo_out
                     set_servo_angle(servo, 90)
@@ -727,6 +815,7 @@ def submit_guest_exit(side):
             # Update vehicle log with checkout time
             if vehicle_log_id:
                 supabase.table('vehicle_log').update({"check_out": exit_time}).eq('vehicle_log_id', vehicle_log_id).execute()
+                update_parking_availability('out', vehicle_log_id)
                 
                 # Open gate with 10 seconds delay (direct servo control for guest operations)
                 servo = servo_in if side.type == 'in' else servo_out
@@ -1032,6 +1121,8 @@ def render_side(img, side, offset_x):
         draw_btn(img, (cx + 280, H//2 - 70, 100, 50), "SKIP", (0,0,200))
 
 def mouse_callback(event, x, y, flags, param):
+    global log_scroll_offset  # FIX: without this, mouse-wheel scrolling raised UnboundLocalError
+    global BACK_TO_CAMPUS
     
     if event == cv2.EVENT_MOUSEWHEEL:
         if x > W//2 and y > H//2: # Only scroll if hovering over logs area
@@ -1051,6 +1142,13 @@ def mouse_callback(event, x, y, flags, param):
         refresh_parking_data()
         return
         
+    # Bottom Left - BACK to campus selection (only when both gates are idle)
+    if in_rect(x, y, (130, H - 60, 100, 40)):
+        if side_in.state == GateState.SCANNING and side_out.state == GateState.SCANNING:
+            print("DEBUG: BACK clicked - returning to campus selection")
+            BACK_TO_CAMPUS = True
+        return
+
     # Check sides
     for side, cx in [(side_in, 0), (side_out, W//2)]:
         if y > H//2: continue # Only top half has buttons
@@ -1150,7 +1248,7 @@ def mouse_callback(event, x, y, flags, param):
                             
                             # Get last log for this registration using correct column names
                             try:
-                                last_log_response = supabase.table('vehicle_log').select('*').eq('registration_id', reg['registration_id']).order('created_at', desc=True).limit(1).execute()
+                                last_log_response = supabase.table('vehicle_log').select('*').eq('registration_id', reg['registration_id']).eq('campus', SELECTED_CAMPUS).order('created_at', desc=True).limit(1).execute()
                                 last_log = last_log_response.data[0] if last_log_response.data else None
                             except:
                                 last_log = None
@@ -1245,10 +1343,80 @@ def mouse_callback(event, x, y, flags, param):
 print("DEBUG: Startup - Creating UI window...")
 cv2.namedWindow("GateQR Dashboard", cv2.WINDOW_NORMAL)
 cv2.setWindowProperty("GateQR Dashboard", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+
+# ==============================================================================
+# CAMPUS SELECTION (runs once at boot, before scanning starts)
+# ==============================================================================
+SELECTED_CAMPUS = None
+CAMPUS_OPTIONS = ["Main", "Rnp", "Paseo"]
+campus_btns = [(W//2 - 150, 220 + i*110, 300, 80) for i in range(len(CAMPUS_OPTIONS))]
+
+def campus_mouse_callback(event, x, y, flags, param):
+    global SELECTED_CAMPUS
+    if event != cv2.EVENT_LBUTTONDOWN: return
+    for name, rect in zip(CAMPUS_OPTIONS, campus_btns):
+        if in_rect(x, y, rect):
+            SELECTED_CAMPUS = name
+            print(f"DEBUG: Campus selected: {SELECTED_CAMPUS}")
+
+cv2.setMouseCallback("GateQR Dashboard", campus_mouse_callback)
+print("DEBUG: Startup - Waiting for campus selection...")
+while SELECTED_CAMPUS is None:
+    screen = np.full((H, W, 3), (30, 30, 30), dtype=np.uint8)
+    draw_text(screen, "SELECT CAMPUS", (W//2 - 150, 120), 1.2, (0, 255, 255), 3)
+    draw_text(screen, "Tap a campus to start scanning", (W//2 - 190, 170), 0.8, (200, 200, 200), 2)
+    for name, rect in zip(CAMPUS_OPTIONS, campus_btns):
+        draw_btn(screen, rect, "", (50, 150, 200))
+        draw_text(screen, name.upper(), (rect[0] + 90, rect[1] + 52), 1.1, (255, 255, 255), 2)
+    cv2.imshow("GateQR Dashboard", screen)
+    if cv2.waitKey(30) & 0xFF == 27:  # ESC to quit
+        if cap1 is not None: cap1.release()
+        if has_dual_cam and cap2 is not None: cap2.release()
+        cv2.destroyAllWindows()
+        raise SystemExit
+
+# Campus chosen -> hand the mouse over to the normal gate UI
 cv2.setMouseCallback("GateQR Dashboard", mouse_callback)
+
+# ==============================================================================
+# BACK BUTTON -> CHOOSE CAMPUS AGAIN
+# ==============================================================================
+BACK_TO_CAMPUS = False
+
+def reselect_campus():
+    """Show the campus selection screen again, then return to the gate UI."""
+    global SELECTED_CAMPUS
+    SELECTED_CAMPUS = None
+    # Clear stats from the previous campus; the poller reloads them for the new one
+    global_stats.clear()
+    global_stats.update({"currentlyIn": 0, "visitsToday": 0})
+    cv2.setMouseCallback("GateQR Dashboard", campus_mouse_callback)
+    print("DEBUG: Waiting for campus selection (BACK)...")
+    while SELECTED_CAMPUS is None:
+        screen = np.full((H, W, 3), (30, 30, 30), dtype=np.uint8)
+        draw_text(screen, "SELECT CAMPUS", (W//2 - 150, 120), 1.2, (0, 255, 255), 3)
+        draw_text(screen, "Tap a campus to start scanning", (W//2 - 190, 170), 0.8, (200, 200, 200), 2)
+        for name, rect in zip(CAMPUS_OPTIONS, campus_btns):
+            draw_btn(screen, rect, "", (50, 150, 200))
+            draw_text(screen, name.upper(), (rect[0] + 90, rect[1] + 52), 1.1, (255, 255, 255), 2)
+        cv2.imshow("GateQR Dashboard", screen)
+        if cv2.waitKey(30) & 0xFF == 27:  # ESC to quit
+            if cap1 is not None: cap1.release()
+            if has_dual_cam and cap2 is not None: cap2.release()
+            cv2.destroyAllWindows()
+            raise SystemExit
+    cv2.setMouseCallback("GateQR Dashboard", mouse_callback)
+
+# Seconds a QR must be out of the camera's view before it counts as a NEW scan during the exit countdown
+QR_REPEAT_GAP = 4
 
 print("DEBUG: Startup - Entering main loop...")
 while True:
+    if BACK_TO_CAMPUS:
+        BACK_TO_CAMPUS = False
+        reselect_campus()
+        continue
+
     if has_dual_cam:
         ret1, frame1 = cap1.read()
         ret2, frame2 = cap2.read()
@@ -1287,67 +1455,84 @@ while True:
     # Process QR for both sides if scanning
     for side, cx, crop in crops:
         side.latest_crop = crop.copy()
+        # Gate just opened: the QR that opened it may still be in view, so start ignoring it from now
+        if side.state != GateState.TIMEOUT:
+            side._timeout_armed = False
+        elif not getattr(side, '_timeout_armed', False):
+            side._timeout_armed = True
+            side.last_qr_time = time.time()
         if side.state == GateState.SCANNING:
             decoded_objects = decode(crop, symbols=[ZBarSymbol.QRCODE])
             if decoded_objects:
                 data = decoded_objects[0].data.decode("utf-8")
                 print(f"[{side.type}] QR: {data}")
                 side.state = GateState.PROCESSING  # Block re-trigger immediately
+                side.last_qr = data  # remember the QR that opens this gate
                 crop_copy = crop.copy()
                 threading.Thread(target=process_qr, args=(side, data, crop_copy), daemon=True).start()
         elif side.state == GateState.TIMEOUT and side.type == 'out':
-            # For exit gate, allow QR scanning during timeout to refresh countdown
+            # For exit gate, keep scanning while the barrier is open: every NEW QR resets the countdown to 15s
             decoded_objects = decode(crop, symbols=[ZBarSymbol.QRCODE])
+            # Same QR still in front of the camera (e.g. the one that opened the gate) -> ignore it
+            if decoded_objects:
+                _seen = decoded_objects[0].data.decode("utf-8")
+                _now = time.time()
+                _repeat = (_seen == getattr(side, 'last_qr', None) and _now - getattr(side, 'last_qr_time', 0) < QR_REPEAT_GAP)
+                side.last_qr_time = _now
+                if _repeat:
+                    decoded_objects = []
             if decoded_objects:
                 data = decoded_objects[0].data.decode("utf-8")
-                print(f"[{side.type}] QR detected during countdown - refreshing: {data}")
-                # Refresh countdown to 15 seconds
-                old_timeout = side.timeout_end
-                side.timeout_end = time.time() + 15
-                print(f"[{side.type}] Countdown refreshed from {max(0, int(old_timeout - time.time()))}s to 15s")
+                side.last_qr = data
+                print(f"[{side.type}] New QR detected during countdown: {data}")
                 # Process the QR to log the exit (but don't open gate again since it's already open)
                 side.snapshot = crop.copy()
-                def _log_exit():
+                def _log_exit(data=data, side=side):
                     try:
                         # Look up registration by qr_unique_code
                         response = supabase.table('registration').select('*').eq('qr_unique_code', data).execute()
                         if response.data:
+                            # Valid QR scanned during the countdown -> reset the countdown to 15 seconds
+                            side.timeout_end = time.time() + 15
+                            print(f"[{side.type}] Countdown reset to 15s")
                             reg = response.data[0]
                             current_time = datetime.now().isoformat()
+                            vehicle_log_id = None
                             
-                            # Find the entry check_in time since database requires check_in to be NOT NULL
+                            # Find and close the existing open entry log
                             try:
-                                last_log_response = supabase.table('vehicle_log').select('*').eq('registration_id', reg['registration_id']).order('created_at', desc=True).limit(1).execute()
-                                if last_log_response.data and last_log_response.data[0].get('check_in'):
-                                    entry_check_in = last_log_response.data[0]['check_in']
-                                else:
-                                    entry_check_in = current_time
-                            except:
-                                entry_check_in = current_time
-                            
-                            # Insert vehicle log using correct column names
-                            log_data = {
-                                "vehicle_information_id": reg.get('vehicle_information_id'),
-                                "registration_id": reg['registration_id'],
-                                "check_in": entry_check_in,  # Always provide a value for check_in
-                                "check_out": current_time,
-                                "logged_status": "REGISTERED"
-                            }
-                            
-                            # Comprehensive null handling
-                            null_fields = []
-                            for key, value in log_data.items():
-                                if value is None:
-                                    null_fields.append(key)
-                            
-                            if null_fields:
-                                print(f"DEBUG: Null fields in countdown refresh: {null_fields}")
-                                if "vehicle_information_id" in null_fields:
-                                    log_data["vehicle_information_id"] = 1
-                            
-                            print(f"DEBUG: Logging exit during countdown: {log_data}")
-                            supabase.table('vehicle_log').insert(log_data).execute()
-                            print(f"[{side.type}] Exit logged successfully for {data}")
+                                open_log_res = supabase.table('vehicle_log').select('*')\
+                                    .eq('registration_id', reg['registration_id'])\
+                                    .ilike('campus', f"%{SELECTED_CAMPUS}%")\
+                                    .is_('check_out', 'null')\
+                                    .order('created_at', desc=True)\
+                                    .limit(1)\
+                                    .execute()
+
+                                if open_log_res.data:
+                                    open_log = open_log_res.data[0]
+                                    vehicle_log_id = open_log['vehicle_log_id']
+                                    supabase.table('vehicle_log').update({
+                                        "check_out": current_time,
+                                        "logged_status": "REGISTERED"
+                                    }).eq('vehicle_log_id', vehicle_log_id).execute()
+                            except Exception as e:
+                                print(f"DEBUG: Error updating open entry during countdown: {e}")
+
+                            if not vehicle_log_id:
+                                log_data = {
+                                    "vehicle_information_id": reg.get('vehicle_information_id') or 1,
+                                    "registration_id": reg['registration_id'],
+                                    "check_in": current_time,
+                                    "check_out": current_time,
+                                    "logged_status": "REGISTERED",
+                                    "campus": SELECTED_CAMPUS
+                                }
+                                res = supabase.table('vehicle_log').insert(log_data).execute()
+                                vehicle_log_id = res.data[0]['vehicle_log_id'] if res.data else None
+
+                            update_parking_availability('out', vehicle_log_id)
+                            print(f"[{side.type}] Exit logged and capacity updated successfully for {data}")
                     except Exception as e:
                         print(f"Error logging exit during countdown: {e}")
                 threading.Thread(target=_log_exit, daemon=True).start()
@@ -1358,6 +1543,8 @@ while True:
 
     # Render Bottom Left (Dashboard)
     render_side_dashboard(display)
+    if side_in.state == GateState.SCANNING and side_out.state == GateState.SCANNING:
+        draw_btn(display, (130, H - 60, 100, 40), "BACK", (100,100,100))
 
     # Render Bottom Right (Table)
     cv2.rectangle(display, (W//2, H//2), (W, H), (50,50,50), -1)

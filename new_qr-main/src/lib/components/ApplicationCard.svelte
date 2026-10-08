@@ -11,6 +11,7 @@
     selectable = false,
     selected = false,
     onselect,
+    startExpanded = false,
   }: {
     tab?: string;
     showQR?: boolean;
@@ -20,9 +21,10 @@
     selectable?: boolean;
     selected?: boolean;
     onselect?: (selected: boolean) => void;
+    startExpanded?: boolean;
   } = $props();
 
-  let expanded = $state(false);
+  let expanded = $state(startExpanded);
 
   let showDocPopup = $state<string | null>(null);
 
@@ -77,7 +79,7 @@
   };
   let roleColor = $derived(roleColors[role] ?? "#6b7280");
 
-  const excludedKeys = ["documents", "owner", "rejection_reason", "status", "crd", "dpt", "osa", "sch", "hdc", "sec", "rel", "ins", "exp"];
+  const excludedKeys = ["documents", "owner", "rejection_reason", "status", "crd", "dpt", "osa", "sch", "hdc", "sec", "rel", "ins", "exp", "qr_code", "qr_unique_code", "change_vehicle_request", "is_change_vehicle"];
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -116,8 +118,8 @@
     <div class="summary-main">
       <span class="summary-name">{data.name || '—'}</span>
       <div class="summary-meta">
-        {#if data.department && data.department !== '-'}
-          <span class="meta-chip">{data.department}</span>
+        {#if (data.department || data.Department) && (data.department || data.Department) !== '-'}
+          <span class="meta-chip">{data.department || data.Department}</span>
         {/if}
         {#if data.campus}
           <span class="meta-chip campus-chip">{data.campus}</span>
@@ -127,6 +129,11 @@
 
     <!-- Right pills -->
     <div class="summary-right">
+      {#if data.change_vehicle_request || data.is_change_vehicle}
+        <span class="change-veh-pill" title="This application is under the request to change registration details">
+          Under Request to Change Registration Details
+        </span>
+      {/if}
       {#if rejectionReason === 'OVERDUE' || (data.sch && (!data.hdc || data.hdc === '-') && new Date(data.sch) < new Date())}
         <span class="status-pill" style="background: #fef2f2; color: #b91c1c; border-color: #fca5a5;">OVERDUE</span>
       {:else if rejectionReason === 'RESCHEDULED'}
@@ -151,6 +158,27 @@
   {#if expanded}
     <div class="card-detail">
       <div class="detail-inner">
+
+        {#if data.change_vehicle_request || data.is_change_vehicle}
+          <div class="change-vehicle-banner">
+            <div class="cvb-header">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/>
+              </svg>
+              <strong>This application is undergo request to change registration details process</strong>
+            </div>
+            {#if data.change_vehicle_request?.reason}
+              <div class="cvb-reason">
+                <strong>Applicant's Reason:</strong> "{data.change_vehicle_request.reason}"
+              </div>
+            {/if}
+            {#if data.change_vehicle_request?.new_vehicle_plate}
+              <div class="cvb-details">
+                <strong>Requested New Vehicle:</strong> {data.change_vehicle_request.new_vehicle_make || ''} ({data.change_vehicle_request.new_vehicle_plate})
+              </div>
+            {/if}
+          </div>
+        {/if}
 
         <!-- Info grid -->
         <div class="info-grid">
@@ -206,7 +234,7 @@
 
         <!-- Documents -->
         {#if showDocs}
-          <div class="detail-section">
+          <div class="detail-section" class:no-border={tab.toLowerCase() === 'revoked'}>
             <span class="section-label">Documents</span>
             <DocumentGrid
               {role}
@@ -218,16 +246,16 @@
         {/if}
 
         <!-- QR Code -->
-        {#if showQR && data.qr_code}
-          <div class="detail-section">
+        {#if showQR}
+          <div class="detail-section" class:no-border={tab.toLowerCase() === 'revoked'}>
             <span class="section-label">QR Code</span>
             <div class="qr-body">
-              <img src={data.qr_code} alt="QR" width="96" height="96" class="qr-img" />
+              <img src={data.qr_code || 'https://api.qrserver.com/v1/create-qr-code/?size=96x96&data=PENDING'} alt="QR" width="96" height="96" class="qr-img" />
               <div class="qr-meta">
-                {#if data.qr_unique_code}
-                  <span class="qr-code-text">Code: {data.qr_unique_code}</span>
+                <span class="qr-code-text">Code: {data.qr_unique_code || 'PENDING'}</span>
+                {#if data.qr_code}
+                  <a href={data.qr_code} download class="qr-download-btn">Download QR</a>
                 {/if}
-                <a href={data.qr_code} download class="qr-download-btn">Download QR</a>
               </div>
             </div>
           </div>
@@ -235,7 +263,7 @@
 
         <!-- Action Bar -->
         {#if children}
-          <div class="detail-section action-section">
+          <div class="detail-section action-section" class:no-border={tab.toLowerCase() === 'revoked'}>
             {@render children()}
           </div>
         {/if}
@@ -491,6 +519,9 @@
     border-top: 1px solid var(--border-light, #f0e8ea);
     padding-top: 0.75rem;
   }
+  .detail-section.no-border {
+    border-top: none;
+  }
   .section-label {
     display: block;
     font-size: 0.65rem;
@@ -622,8 +653,51 @@
     margin-top: 0.25rem;
     transition: color 0.15s;
   }
-  .doc-open-link:hover {
-    color: #800000;
+  .change-veh-pill {
+    padding: 0.2rem 0.55rem;
+    border-radius: 9999px;
+    font-size: 0.675rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fde68a;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .change-vehicle-banner {
+    background: linear-gradient(135deg, rgba(212, 175, 55, 0.12), rgba(128, 0, 0, 0.06));
+    border: 1.5px solid #d4af37;
+    border-radius: 8px;
+    padding: 0.875rem 1rem;
+    margin-bottom: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .cvb-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--maroon, #800000);
+    font-weight: 700;
+  }
+
+  .cvb-reason {
+    font-size: 0.85rem;
+    color: #78350f;
+    font-style: italic;
+    padding-left: 1.6rem;
+  }
+
+  .cvb-details {
+    font-size: 0.825rem;
+    color: #111827;
+    padding-left: 1.6rem;
   }
 </style>
 

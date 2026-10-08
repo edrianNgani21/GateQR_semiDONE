@@ -95,15 +95,11 @@
 </svelte:head>
 
 <AppShell showSidebar={true} userEmail={userEmail}>
-  <NavBar title="Departments" links={[]} />
+  <NavBar title="Departments" />
 
   <div class="departments-container">
     <!-- Header Section -->
-    <div class="page-header">
-      <div class="header-content">
-        <h1>Departments</h1>
-        <p class="header-subtitle">Manage college departments and courses</p>
-      </div>
+    <div class="page-header" style="justify-content: flex-end;">
       <div class="header-actions">
         <a href="/osa/deans" class="secondary-button">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
